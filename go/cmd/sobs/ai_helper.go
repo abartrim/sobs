@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
@@ -488,6 +489,117 @@ func (s *server) streamLLMEndpoint(req llmRequest) (string, []aiToolCall, llmSta
 	return joined, completed, st
 }
 
+// sseJSONEvent mirrors app.py _sse_json_event: "event: {name}\ndata: {json.dumps(payload,
+// ensure_ascii=False)}\n\n". The payload is encoded with dumpsDefault (", " / ": " separators,
+// ensure_ascii=False, key insertion order) — matching Python's default json.dumps separators.
+func sseJSONEvent(name string, payload any) string {
+	return "event: " + name + "\ndata: " + string(jsonenc.Encode(payload, dumpsDefault)) + "\n\n"
+}
+
+// streamLLMEndpointWithCallbacks is the streaming-output variant of streamLLMEndpoint: it calls
+// onDelta for each non-empty content delta and onTool for each completed tool call as they arrive
+// (enabling real-time SSE forwarding), then returns the final llmStats. The internal behaviour is
+// identical to streamLLMEndpoint; refactoring them to share code would couple imports across file
+// boundaries we want to keep disjoint.
+func (s *server) streamLLMEndpointWithCallbacks(req llmRequest, onDelta func(string), onTool func(aiToolCall)) llmStats {
+	req.stream = true
+	resp, err := s.upstreamRequest("POST", chatCompletionsURL(req.endpoint), llmRequestBody(req), llmRequestHeaders(req.apiKey))
+	if err != nil || resp.Status >= 400 {
+		return llmStats{}
+	}
+	var outputParts []string
+	var usage *jsonenc.Object
+	toolAccum := map[int]*aiToolSlot{}
+	flush := func() {
+		idxs := make([]int, 0, len(toolAccum))
+		for i := range toolAccum {
+			idxs = append(idxs, i)
+		}
+		sort.Ints(idxs)
+		for _, i := range idxs {
+			slot := toolAccum[i]
+			var args *jsonenc.Object
+			if raw := slot.args.String(); raw != "" {
+				if parsed, err := parseJSONValue([]byte(raw)); err == nil {
+					args, _ = parsed.(*jsonenc.Object)
+				}
+			}
+			if args == nil {
+				args = jsonenc.NewObject()
+			}
+			tc := aiToolCall{name: slot.name, args: args}
+			if onTool != nil {
+				onTool(tc)
+			}
+		}
+		toolAccum = map[int]*aiToolSlot{}
+	}
+	for _, rawLine := range strings.Split(resp.RawContent, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, ":") || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(line[len("data:"):])
+		if data == "" {
+			continue
+		}
+		if data == "[DONE]" {
+			break
+		}
+		parsed, perr := parseJSONValue([]byte(data))
+		if perr != nil {
+			continue
+		}
+		event, _ := parsed.(*jsonenc.Object)
+		if event == nil {
+			continue
+		}
+		if uv, ok := event.Get("usage"); ok && uv != nil {
+			if uo, ok := uv.(*jsonenc.Object); ok {
+				usage = uo
+			}
+		}
+		for _, td := range extractStreamToolCallDeltas(event) {
+			slot := toolAccum[td.index]
+			if slot == nil {
+				slot = &aiToolSlot{}
+				toolAccum[td.index] = slot
+			}
+			if td.name != "" {
+				slot.name = td.name
+			}
+			if td.arguments != "" {
+				slot.args.WriteString(td.arguments)
+			}
+		}
+		if dt := extractStreamDelta(event); dt != "" {
+			outputParts = append(outputParts, dt)
+			if onDelta != nil {
+				onDelta(dt)
+			}
+		}
+		if extractStreamFinishReason(event) == "tool_calls" {
+			flush()
+		}
+	}
+	if len(toolAccum) > 0 {
+		flush()
+	}
+	st := llmStats{}
+	if usage != nil {
+		st.prompt = jnInt(usage, "prompt_tokens")
+		st.completion = jnInt(usage, "completion_tokens")
+		st.thinking = jnInt(usage, "thinking_tokens")
+		if st.thinking == 0 {
+			st.thinking = jnInt(usage, "reasoning_tokens")
+		}
+	}
+	joined := strings.Join(outputParts, "")
+	outputMessages := []any{jsonenc.NewObject().Set("role", "assistant").Set("content", joined)}
+	s.emitInternalGenAISpan(req.endpoint, req.model, req.messages, outputMessages, st, "", "")
+	return st
+}
+
 // extractStreamDelta mirrors app.py _extract_stream_delta.
 func extractStreamDelta(event *jsonenc.Object) string {
 	choices := objGetArr(event, "choices")
@@ -626,10 +738,10 @@ func objGetArr(o *jsonenc.Object, key string) []any {
 	return nil
 }
 
-// handleApiAiHelper mirrors app.py ai_helper (non-streaming JSON path): guard, then the tool loop
-// over the (canned) streaming LLM endpoint, then the turn summary + memory-consolidation pass, and
-// the assembled JSON turn result. The streaming (text/event-stream) variant is a follow-up; the
-// JSON path is the authoritative one the parity oracle exercises.
+// handleApiAiHelper mirrors app.py ai_helper: guard, then the tool loop over the (canned)
+// streaming LLM endpoint, then the turn summary + memory-consolidation pass. When stream_requested
+// is true (payload.stream or Accept: text/event-stream) it returns a text/event-stream SSE response
+// (meta/guard/token/tool/done events); otherwise it returns the assembled JSON turn result.
 func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	payload := bodyMap(r)
 	question := strings.TrimSpace(bstr(payload, "question"))
@@ -647,6 +759,15 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		turnID = newUUIDv4()
 	}
 
+	// stream_requested (app.py:27613): bool(payload.get("stream")) OR Accept: text/event-stream.
+	streamRequested := false
+	if sv, ok := payload["stream"]; ok {
+		streamRequested = isTruthyVal(sv, ok)
+	}
+	if !streamRequested && strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		streamRequested = true
+	}
+
 	endpointURL := strings.TrimSpace(s.loadAISetting("ai.endpoint_url", ""))
 	model := strings.TrimSpace(s.loadAISetting("ai.model", ""))
 	guardModel := strings.TrimSpace(s.loadAISetting("ai.guard_model", ""))
@@ -661,11 +782,14 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		thinkingLevel = "off"
 	}
 
-	// turn.start (app.py:27635) — emitted before the endpoint-configured check. The JSON path is
-	// never stream_requested, so gen_ai.request.stream is always False here.
+	// turn.start (app.py:27635): gen_ai.request.stream mirrors the Python bool str ("True"/"False").
+	streamAttr := "False"
+	if streamRequested {
+		streamAttr = "True"
+	}
 	s.emitAiHelperLogEvent("turn.start", chatID, turnID, page, model, guardModel, thinkingLevel,
 		"AI helper turn started", "INFO", map[string]string{
-			"gen_ai.request.stream": "False",
+			"gen_ai.request.stream": streamAttr,
 			"gen_ai.input.messages": string(jsonenc.Encode(
 				[]any{jsonenc.NewObject().Set("role", "user").Set("content", question)}, dumpsDefault)),
 		})
@@ -685,6 +809,21 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 		// turn.blocked (app.py:27675) — severity WARN.
 		s.emitAiHelperLogEvent("turn.blocked", chatID, turnID, page, model, guardModel, thinkingLevel,
 			errorMessage, "WARN", map[string]string{"gen_ai.guard.reason": guardReason})
+		if streamRequested {
+			// Streaming guard-blocked sub-branch (app.py:27687-27696): emit a single `error` SSE
+			// event with text/event-stream headers. Set Content-Length so parity vs the Quart test
+			// client (which buffers the full generator) matches.
+			// Quart appends "; charset=utf-8" to text/event-stream mimetype responses.
+			body := sseJSONEvent("error", jsonenc.NewObject().Set("error", errorMessage))
+			h := w.Header()
+			h.Set("Content-Type", "text/event-stream; charset=utf-8")
+			h.Set("Cache-Control", "no-cache")
+			h.Set("X-Accel-Buffering", "no")
+			h.Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, body)
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, jsonenc.NewObject().
 			Set("ok", false).Set("error", errorMessage))
 		return
@@ -692,11 +831,6 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 
 	turnLogsURL := buildAITurnLogsURL(chatID, turnID)
 
-	var answerParts []string
-	var proposedTools []any
-	var modelStats *jsonenc.Object
-	var lastStats llmStats
-	const maxToolRounds = 3
 	var contextData map[string]any
 	if cv, ok := payload["context"].(map[string]any); ok {
 		contextData = cv
@@ -706,6 +840,202 @@ func (s *server) handleApiAiHelper(w http.ResponseWriter, r *http.Request) {
 	// per-page tools. All of it lands in the LLM request body/tools, which the parity mock ignores.
 	systemPrompt, userContent, helperTools := s.buildAIHelperContext(question, page, chatID, model, contextData)
 	apiKey := strings.TrimSpace(s.loadAISetting("ai.api_key", ""))
+
+	if streamRequested {
+		// Streaming path (app.py:27805-28129): mirrors _generate(), the async SSE generator.
+		// We collect all SSE events into a buffer first so the Content-Type header is set before
+		// writing; parity captures via Quart test client (which buffers the full generator output),
+		// so byte-parity requires Go to emit the same content-length as Python.
+		var sseBuf strings.Builder
+
+		appendSSE := func(name string, payload any) {
+			sseBuf.WriteString(sseJSONEvent(name, payload))
+		}
+
+		// meta event (app.py:27813-27822): chat/turn ids + model metadata.
+		appendSSE("meta", jsonenc.NewObject().
+			Set("chat_id", chatID).
+			Set("turn_id", turnID).
+			Set("supports_thinking", modelSupportsThinking(model)).
+			Set("thinking_level", thinkingLevel).
+			Set("turn_logs_url", turnLogsURL))
+
+		// guard event (app.py:27823): the guard_stats object.
+		appendSSE("guard", jsonenc.NewObject().Set("guard_stats", guardStats))
+
+		var streamAnswerParts []string
+		var streamModelStats llmStats
+		var streamLastToolSummary string
+		loopMessages := []any{
+			jsonenc.NewObject().Set("role", "system").Set("content", systemPrompt),
+			jsonenc.NewObject().Set("role", "user").Set("content", userContent),
+		}
+		const maxToolRoundsSSE = 3
+		for loopRound := 0; loopRound <= maxToolRoundsSSE; loopRound++ {
+			var roundTextParts []string
+			var roundToolFeedback []*jsonenc.Object
+
+			onDelta := func(chunk string) {
+				streamAnswerParts = append(streamAnswerParts, chunk)
+				roundTextParts = append(roundTextParts, chunk)
+				appendSSE("token", jsonenc.NewObject().Set("text", chunk))
+			}
+			onTool := func(tc aiToolCall) {
+				var normalized *jsonenc.Object
+				if tc.name == "propose_ui_action" {
+					normalized = s.normalizeGenericUIActionToolCall(tc.args, page)
+				}
+				if normalized == nil {
+					return
+				}
+				actionID := strings.TrimSpace(objStrOr(normalized, "action_id"))
+				unsupported := objTruthy(normalized, "unsupported")
+				streamLastToolSummary = strings.TrimSpace(objStrOr(normalized, "summary"))
+				attachAiActionToken(normalized, page, chatID, turnID)
+				s.emitToolProposed(chatID, turnID, page, model, guardModel, thinkingLevel, tc.name, normalized, unsupported)
+				roundToolFeedback = append(roundToolFeedback,
+					aiToolFeedbackEnvelope(tc.name, actionID, normalized, unsupported))
+				// tool SSE event (app.py:27903): emit the normalized tool object.
+				appendSSE("tool", normalized)
+			}
+
+			streamReq := llmRequest{
+				endpoint:      endpointURL,
+				model:         model,
+				apiKey:        apiKey,
+				thinkingLevel: thinkingLevel,
+				maxTokens:     768,
+				tools:         helperTools,
+				messages:      loopMessages,
+			}
+			streamModelStats = s.streamLLMEndpointWithCallbacks(streamReq, onDelta, onTool)
+
+			// fallback tool (app.py:27907-27955): synthesised when no tool feedback yet.
+			if len(roundToolFeedback) == 0 {
+				if fallback := s.suggestChartDashboardPivotTool(question, page); fallback != nil {
+					actionID := strings.TrimSpace(objStrOr(fallback, "action_id"))
+					unsupported := objTruthy(fallback, "unsupported")
+					streamLastToolSummary = strings.TrimSpace(objStrOr(fallback, "summary"))
+					attachAiActionToken(fallback, page, chatID, turnID)
+					s.emitToolProposed(chatID, turnID, page, model, guardModel, thinkingLevel,
+						"fallback.dashboard_chart_pivot", fallback, unsupported)
+					roundToolFeedback = append(roundToolFeedback,
+						aiToolFeedbackEnvelope("propose_ui_action", actionID, fallback, unsupported))
+					appendSSE("tool", fallback)
+				}
+			}
+			_ = streamLastToolSummary
+
+			hasPendingConfirmation := false
+			for _, item := range roundToolFeedback {
+				if objBoolDefaultTrue(item, "requires_confirmation") {
+					hasPendingConfirmation = true
+					break
+				}
+			}
+			if hasPendingConfirmation {
+				break
+			}
+			if len(roundToolFeedback) == 0 || loopRound >= maxToolRoundsSSE {
+				break
+			}
+
+			assistantRoundText := strings.TrimSpace(strings.Join(roundTextParts, ""))
+			if assistantRoundText != "" {
+				loopMessages = append(loopMessages,
+					jsonenc.NewObject().Set("role", "assistant").Set("content", assistantRoundText))
+			} else {
+				loopMessages = append(loopMessages,
+					jsonenc.NewObject().Set("role", "assistant").Set("content", "Requested tool calls for the current turn."))
+			}
+			feedbackList := make([]any, len(roundToolFeedback))
+			for i, f := range roundToolFeedback {
+				feedbackList[i] = f
+			}
+			toolFeedbackText := string(jsonenc.Encode(feedbackList, dumpsDefault))
+			loopMessages = append(loopMessages,
+				jsonenc.NewObject().Set("role", "system").Set("content",
+					"Tool execution results for this turn (JSON). Use these results to continue reasoning "+
+						"and produce the final answer when ready: "+toolFeedbackText))
+		}
+
+		// Post-stream tail: extract answer/meta, derive summary, consolidate memory, emit telemetry.
+		streamAnswer := strings.TrimSpace(strings.Join(streamAnswerParts, ""))
+		// SSE headers (app.py:28125-28129): write after computing body so Content-Length is available.
+		// Quart adds "; charset=utf-8" to text/event-stream mimetype responses, so mirror that exactly.
+		h := w.Header()
+		h.Set("Content-Type", "text/event-stream; charset=utf-8")
+		h.Set("Cache-Control", "no-cache")
+		h.Set("X-Accel-Buffering", "no")
+		if streamAnswer == "" {
+			s.emitAiHelperLogEvent("turn.error", chatID, turnID, page, model, guardModel, thinkingLevel,
+				"LLM endpoint returned no response", "ERROR", nil)
+			sseBuf.Reset()
+			sseBuf.WriteString(sseJSONEvent("error", jsonenc.NewObject().Set("error", "LLM endpoint returned no response")))
+			body := sseBuf.String()
+			h.Set("Content-Length", strconv.Itoa(len(body)))
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, body)
+			return
+		}
+
+		finalStreamAnswer, streamMeta := extractAssistantMeta(streamAnswer)
+		var streamMetaSummary *jsonenc.Object
+		if v, ok := streamMeta.Get("turn_summary"); ok {
+			streamMetaSummary, _ = v.(*jsonenc.Object)
+		}
+		streamSummary := deriveTurnSummary(question, finalStreamAnswer, "", streamMetaSummary)
+
+		streamSavedMemoryIDs := []any{}
+		for _, candidate := range extractMemoryCandidates(streamMeta) {
+			related := semanticMemoryMatches(s.loadChatMemories(chatID), candidate, 4, aiMemoryConsolidationScore)
+			consolidation := s.consolidateMemoryCandidates(candidate, related)
+			if consolidation.action == "ignore" {
+				continue
+			}
+			mergedText := consolidation.memory
+			if mergedText == "" {
+				mergedText = candidate
+			}
+			mergedText = coerceSummaryValue(mergedText, 280)
+			for _, dropID := range consolidation.dropIDs {
+				s.upsertAIMemory(dropID, chatID, "", turnID, true)
+			}
+			newID := newUUIDv4()
+			s.upsertAIMemory(newID, chatID, mergedText, turnID, false)
+			streamSavedMemoryIDs = append(streamSavedMemoryIDs, newID)
+		}
+
+		// turn.complete + turn.summary telemetry (app.py:28040-28080).
+		s.emitAiHelperTurnComplete(chatID, turnID, page, model, thinkingLevel, question, finalStreamAnswer, streamModelStats, streamSummary, streamSavedMemoryIDs)
+
+		// done event (app.py:28081-28096): NO tool_proposals (streaming path).
+		streamModelStatsObj := llmStatsObject(streamModelStats)
+		appendSSE("done", jsonenc.NewObject().
+			Set("ok", true).
+			Set("answer", finalStreamAnswer).
+			Set("model", model).
+			Set("chat_id", chatID).
+			Set("turn_id", turnID).
+			Set("thinking_level", thinkingLevel).
+			Set("turn_logs_url", turnLogsURL).
+			Set("guard_stats", guardStats).
+			Set("model_stats", streamModelStatsObj).
+			Set("turn_summary", streamSummary).
+			Set("saved_memory_ids", streamSavedMemoryIDs))
+
+		body := sseBuf.String()
+		h.Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, body)
+		return
+	}
+
+	var answerParts []string
+	var proposedTools []any
+	var modelStats *jsonenc.Object
+	var lastStats llmStats
+	const maxToolRounds = 3
 	// loop_messages accumulates across rounds (app.py:28131): each round appends an assistant turn +
 	// a system message carrying the JSON tool-feedback, then re-calls the LLM with the grown context.
 	loopMessages := []any{

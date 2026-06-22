@@ -4309,6 +4309,23 @@ routes:
       page: /logs
       chat_id: chat-parity-tool1
       turn_id: turn-parity-tool1
+# Streaming variant of the aihelper success turn (stream:true): drives the previously-dark
+# _generate() SSE generator (app.py 27805-28123) — meta/guard/token events over the canned MAIN
+# SSE, the streaming tool-loop, and the turn-summary tail. Same aihelper profile/fixtures; fresh
+# chat/turn ids so it shares no history with the non-streaming case. Response is text/event-stream.
+- id: post__api_ai_helper_answer__stream
+  path: /api/ai/helper
+  profile: aihelper
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: How do I find errors in my logs?
+      page: /logs
+      chat_id: chat-parity-strm1
+      turn_id: turn-parity-strm1
+      stream: true
 - id: post__api_ai_helper_actions_execute
   path: /api/ai/helper/actions/execute
   methods:
