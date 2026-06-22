@@ -63,6 +63,38 @@ def _defensive_except_lines(tree: ast.AST) -> set[int]:
     return lines
 
 
+# Exception types whose handlers are reachable ONLY by an infrastructure fault (a full write queue,
+# a broken upstream/IO) — never by a normal deterministic request. A try that catches any of these is
+# treated as fault-injection-only: ALL its handlers (incl. the sibling broad `except Exception:` that
+# returns the 5xx) are deferred, NOT corpus-coverable. This removes the classifier's biggest COVERABLE
+# false-positive class (the ingest_* `_queue_write` 503/500 branches all return, so they'd otherwise
+# read as COVERABLE despite being un-triggerable by a byte-parity golden).
+_FAULT_EXC_NAMES = {"WriteQueueFullError"}
+
+
+def _fault_injection_lines(tree: ast.AST) -> set[int]:
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        caught: set[str] = set()
+        for h in node.handlers:
+            t = h.type
+            if isinstance(t, ast.Name):
+                caught.add(t.id)
+            elif isinstance(t, ast.Tuple):
+                caught.update(e.id for e in t.elts if isinstance(e, ast.Name))
+        if not (_FAULT_EXC_NAMES & caught):
+            continue
+        # The guarded body is an infra write/IO; every handler on this try is fault-injection-only.
+        for h in node.handlers:
+            start = h.lineno
+            end = getattr(h, "end_lineno", None) or start
+            for ln in range(start, end + 1):
+                lines.add(ln)
+    return lines
+
+
 def _now_window_lines(src_lines: list[str]) -> set[int]:
     out: set[int] = set()
     for i, text in enumerate(src_lines, start=1):
@@ -98,12 +130,15 @@ def main() -> int:
     tree = ast.parse(APP.read_text())
 
     defensive = _defensive_except_lines(tree)
+    fault = _fault_injection_lines(tree)
     now_win = _now_window_lines(src)
     lib_err = _library_err_text_lines(src)
 
-    # Precedence: defensive (truly unreachable) > now-window > library-error-text > coverable.
+    # Precedence: defensive (no-return swallow) > fault-injection (infra-only return) > now-window >
+    # library-error-text > coverable.
     buckets: dict[str, list[int]] = {
         "DEFENSIVE_EXCEPT": [],
+        "FAULT_INJECTION": [],
         "NOW_WINDOW": [],
         "LIBRARY_ERR_TEXT": [],
         "COVERABLE": [],
@@ -111,6 +146,8 @@ def main() -> int:
     for ln in sorted(uncovered):
         if ln in defensive:
             buckets["DEFENSIVE_EXCEPT"].append(ln)
+        elif ln in fault:
+            buckets["FAULT_INJECTION"].append(ln)
         elif ln in now_win:
             buckets["NOW_WINDOW"].append(ln)
         elif ln in lib_err:
@@ -125,7 +162,12 @@ def main() -> int:
 
     OUT_JSON.write_text(json.dumps({"summary": summary, "buckets": buckets}, indent=2))
 
-    deferred = summary["DEFENSIVE_EXCEPT"] + summary["NOW_WINDOW"] + summary["LIBRARY_ERR_TEXT"]
+    deferred = (
+        summary["DEFENSIVE_EXCEPT"]
+        + summary["FAULT_INJECTION"]
+        + summary["NOW_WINDOW"]
+        + summary["LIBRARY_ERR_TEXT"]
+    )
     # the deterministically-reachable ceiling = covered + coverable, as a % of all statements
     ceiling = (covered + summary["COVERABLE"]) / total_app * 100 if total_app else 0.0
     cur_pct = covered / total_app * 100 if total_app else 0.0
@@ -143,6 +185,9 @@ def main() -> int:
         f"| DEFENSIVE_EXCEPT | {summary['DEFENSIVE_EXCEPT']} | "
         f"{summary['DEFENSIVE_EXCEPT']/total*100:.1f}% | except-body pass/log/continue — needs fault "
         f"injection |",
+        f"| FAULT_INJECTION | {summary['FAULT_INJECTION']} | "
+        f"{summary['FAULT_INJECTION']/total*100:.1f}% | except handler reachable only by an infra fault "
+        f"(WriteQueueFullError etc.) — returns a 5xx but un-triggerable by a deterministic request |",
         f"| NOW_WINDOW | {summary['NOW_WINDOW']} | {summary['NOW_WINDOW']/total*100:.1f}% | chdb "
         f"now() wall-clock — needs now()-anchored seed or unverifiable |",
         f"| LIBRARY_ERR_TEXT | {summary['LIBRARY_ERR_TEXT']} | "
