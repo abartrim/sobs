@@ -7471,3 +7471,26 @@ routes:
   request:
     method: POST
     json: {}
+# api_raw_span whitespace span_id (app.py 15697-15699): the <span_id> path segment is a single
+# (url-encoded) space, so span_id.strip() == "" -> 400 {"error":"span_id is required","ok":false}.
+# Returns before any DB read; deterministic, base profile.
+- id: get__api_traces_span__blank
+  path: /api/traces/span/%20
+  methods:
+  - GET
+  request:
+    method: GET
+# ai_helper AI-endpoint-not-configured (app.py 27650-27659): base profile has no ai.endpoint_url, so
+# a non-empty question hits the 503 {"error":"AI endpoint not configured. Visit Settings → AI
+# Configuration.","ok":false}. The turn.start telemetry emit fires first but is symmetric (Go emits
+# it too), so it doesn't ripple the base sequence. Fixed chat/turn ids keep the emit deterministic.
+- id: post__api_ai_helper__no_endpoint
+  path: /api/ai/helper
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: How do I find errors in my logs?
+      chat_id: chat-parity-noep1
+      turn_id: turn-parity-noep1
