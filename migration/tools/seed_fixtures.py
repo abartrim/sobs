@@ -4732,7 +4732,7 @@ PROFILE_SEEDS = {
     "enrichlibs": seed_enrichlibs,  # otel_traces sdk/scope rows + 1 CVE -> populated library inventory
     "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
     "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
-    "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup (_get_geo_db + _geo_lookup_batch)
+    "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup
 }
 
 
