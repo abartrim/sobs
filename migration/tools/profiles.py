@@ -554,6 +554,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # missing-fixture->404 advances earlier candidates. attempted=4, inserted=4,
     # libraries_found=13, vulns_found=13 (canned OSV -> 1 vuln per lib).
     "lockfiles": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # cveactions: like depsrich but the canned actions/artifacts fixture DOES contain the
+    # sobs-release-dependency-snapshots artifact, so _github_actions_dependency_rows downloads
+    # the zip (bytes_b64 fixture), parses pip-freeze-linux-x86_64.txt -> requests+flask ->
+    # one dependencies-lockfile row inserted -> 2 libs -> OSV (canned) -> 2 vulns_found.
+    # Uses a distinct CommitSha (aabbccdd1122) from depsrich so fixture keys are disjoint.
+    "cveactions": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -953,6 +959,7 @@ SEEDED_PROFILES = {
     "tagsuggest",
     "cvebackfill",
     "depsrich",
+    "cveactions",
     "lockfiles",
     "onboard",
     "onbupdate",

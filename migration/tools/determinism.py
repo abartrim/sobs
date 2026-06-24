@@ -123,6 +123,10 @@ def _install_upstream_fixtures() -> None:
         status = int(spec.get("status", 200))
         if "json" in spec:
             return httpx.Response(status, json=spec["json"])
+        if "bytes_b64" in spec:
+            import base64 as _b64
+
+            return httpx.Response(status, content=_b64.b64decode(spec["bytes_b64"]))
         return httpx.Response(status, content=str(spec.get("content", "")).encode("utf-8"))
 
     _orig_init = httpx.AsyncClient.__init__

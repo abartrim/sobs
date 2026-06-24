@@ -6558,6 +6558,22 @@ routes:
   mask:
   - '"scanned_at": ?"[^"]*"'
   mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# cveactions profile: like depsrich but the canned actions/artifacts fixture CONTAINS the
+# sobs-release-dependency-snapshots artifact (id 8001), so _github_actions_dependency_rows
+# downloads the zip (bytes_b64 fixture), parses pip-freeze-linux-x86_64.txt -> requests+flask
+# -> one dependencies-lockfile artifact inserted -> 2 libs -> OSV (canned) scan -> 2 vulns_found.
+# Covers the zip-download+parse branch of _github_actions_dependency_rows (16574-16627).
+- id: post__api_enrichment_cve_scan__cveactions
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: cveactions
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
 # lockfiles profile (M30): FOUR seeded apps+releases(+CommitSha)+token so the cve scan's github
 # backfill iterates all four releases and reaches a DIFFERENT lockfile parser per repo (the contents
 # loop BREAKS after the first 200-that-parses): acme/reqs -> requirements.txt (_parse_requirements,

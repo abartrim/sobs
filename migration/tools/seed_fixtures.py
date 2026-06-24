@@ -966,6 +966,63 @@ def seed_depsrich(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
 
 
+def seed_cveactions(db) -> None:
+    # Like seed_depsrich but uses CommitSha=aabbccdd1122 so the actions/runs URL key is distinct
+    # from depsrich's deadbeefcafe. The canned upstream fixtures for this commit drive the FULL
+    # github-actions snapshot path:
+    #   - actions/runs?head_sha=aabbccdd1122   -> run 7001 (conclusion=success)
+    #   - actions/runs/7001/artifacts          -> sobs-release-dependency-snapshots artifact (id 8001)
+    #   - actions/artifacts/8001/zip           -> bytes_b64 zip with pip-freeze-linux-x86_64.txt
+    #                                             content: requests==2.28.0 + flask==2.3.0
+    # Result: 1 dependencies-lockfile artifact inserted (2 deps), 2 libs -> OSV scan -> 2 vulns_found.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000002",
+                "Name": "Widget Service",
+                "Slug": "widget-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/widget",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": "f2000000000000000000000000000002",
+                "AppId": "f1000000000000000000000000000002",
+                "ReleaseVersion": "1.0.0",
+                "CommitSha": "aabbccdd1122",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_lockfiles(db) -> None:
     # M30: like seed_depsrich, but FOUR enabled apps (one per ecosystem) + FOUR releases (each with a
     # CommitSha + ReleaseVersion 1.0.0) + the shared github token, so the cve scan's github backfill
@@ -4820,6 +4877,7 @@ PROFILE_SEEDS = {
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "depsrich": seed_depsrich,  # app+release(+commit)+token -> cve backfill walks the full deps-parse chain
+    "cveactions": seed_cveactions,  # like depsrich but actions artifacts HAS snapshot -> zip download -> 2 libs
     "lockfiles": seed_lockfiles,  # M30: 4 apps/releases -> cve backfill hits all 4 lockfile parsers
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "onbupdate": seed_onbupdate,  # M37: app+token (distinct repo) -> onboarding create-issues UPDATE branch (PATCH)

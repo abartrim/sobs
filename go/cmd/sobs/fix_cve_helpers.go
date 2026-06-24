@@ -163,12 +163,12 @@ func (s *server) githubActionsDependencyRows(token, owner, repo, releaseID, rele
 
 		archiveResp, err := s.upstreamRequest("GET", archiveURL, nil,
 			githubAPIHeaders(token, false, map[string]string{"Accept": "application/octet-stream"}))
-		if err != nil || archiveResp.Status != 200 || archiveResp.RawContent == "" {
+		if err != nil || archiveResp.Status != 200 || len(archiveResp.RawBytes) == 0 {
 			continue
 		}
 
 		rows := parseGithubActionsSnapshotZip(
-			[]byte(archiveResp.RawContent), owner, repo, runID, artifactID, releaseID, releaseVersion,
+			archiveResp.RawBytes, owner, repo, runID, artifactID, releaseID, releaseVersion,
 			pyStrOr(getObjField(run, "head_sha"), true), pyStrOr(getObjField(snapshot, "name"), true))
 		if len(rows) > 0 {
 			return rows
