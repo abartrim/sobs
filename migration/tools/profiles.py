@@ -761,6 +761,18 @@ PROFILES: dict[str, dict[str, str]] = {
     # only volatile headers (Last-Modified / Werkzeug FS-ETag) are dropped by normalize.py, so the
     # comparison is deterministic. No env overlay — the asset lives on the filesystem, not chdb.
     "rumasset": {},
+    # rumassetupload: SOBS_RUM_ASSET_SIGNING_KEY set to a fixed parity key so _verify_rum_asset_signature
+    # (app.py 7706-7745) reaches its signing/validation branches and ingest_rum_asset (9699-9756) hits
+    # its success path. A pre-computed HMAC-SHA256 signature (body=b"sobs parity rum asset body\n",
+    # timestamp=FIXED_EPOCH=1704164645, method=POST, path=/v1/rum/assets, content-type=text/plain,
+    # type=asset, name=parity-asset.txt) drives the success route. Additional cases in the same profile
+    # exercise the missing-headers, invalid-timestamp, expired-timestamp, and wrong-signature 401 arms.
+    # The uploaded asset_id (uuid4.hex) and url differ between Python (frozen counter) and Go (random),
+    # so both fields are masked in the manifest. No seed needed — the upload itself creates the file.
+    # Isolated so the written rum_asset files never ripple into base/rumasset readers.
+    "rumassetupload": {
+        "SOBS_RUM_ASSET_SIGNING_KEY": "sobs-parity-rum-asset-signing-key",
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     # BODY-KEYED (strict prompt parity): the two ask fixtures are keyed by the sha256 of the EXACT
     # LLM request body (upstream_fixture_key_body), NOT the URL — and the URL-keyed fallbacks were

@@ -5271,6 +5271,93 @@ routes:
   request:
     method: POST
     json: {}
+# ingest_rum_asset SUCCESS path via the rumassetupload profile (SOBS_RUM_ASSET_SIGNING_KEY set).
+# Body = b"sobs parity rum asset body\n" (27 bytes); HMAC-SHA256 of the canonical payload
+# (POST\n/v1/rum/assets\n1704164645\n<sha256-of-body>\ntext/plain\nasset\nparity-asset.txt)
+# with key "sobs-parity-rum-asset-signing-key" = 00f9f94d6479ea785cda83120275f98bc2ac504ae7122243d2bf483c871ef824.
+# Timestamp = FIXED_EPOCH (1704164645) so abs(now-ts)=0 <= window=300. Returns 201 with the new
+# asset id/url. The asset_id is uuid.uuid4().hex (frozen counter in Python, random in Go) and the
+# url embeds it — both fields are masked so only type/name/contentType/size are byte-compared.
+# Covers _verify_rum_asset_signature lines 7728-7744 + ingest_rum_asset lines 9723-9756.
+- id: post__v1_rum_assets__signed
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    query:
+      type: asset
+      name: parity-asset.txt
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1704164645"
+      X-SOBS-Asset-Signature: "00f9f94d6479ea785cda83120275f98bc2ac504ae7122243d2bf483c871ef824"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+  mask:
+  - '"id":"[a-f0-9]{32}"'
+  - '"/v1/rum/assets/[a-f0-9]{32}"'
+  mask_reason: >
+    asset_id = uuid.uuid4().hex (Python frozen counter; Go uses crypto/rand — not parity-frozen);
+    the url field embeds the same uuid. type/name/contentType/size are deterministic and byte-compared.
+# ingest_rum_asset: signing key set but request carries no X-SOBS-Asset-Timestamp or
+# X-SOBS-Asset-Signature headers -> _verify_rum_asset_signature returns (False,
+# "Missing asset signature headers") -> 401. Covers app.py 7718-7721.
+- id: post__v1_rum_assets__missing_sig_headers
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp header is non-numeric -> int(timestamp) raises
+# ValueError -> _verify_rum_asset_signature returns (False, "Invalid asset signature timestamp") -> 401.
+# Covers app.py 7723-7726.
+- id: post__v1_rum_assets__bad_timestamp
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "not-a-number"
+      X-SOBS-Asset-Signature: "abc"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp=1 (abs(FIXED_EPOCH-1)=1704164644 >> 300) ->
+# _verify_rum_asset_signature returns (False, "Asset signature timestamp outside allowed window") -> 401.
+# Covers app.py 7728-7730.
+- id: post__v1_rum_assets__expired_ts
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1"
+      X-SOBS-Asset-Signature: "abc"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp valid, signature is wrong hex ->
+# secrets.compare_digest(sig, expected) fails -> (False, "Invalid asset signature") -> 401.
+# Covers app.py 7743-7744.
+- id: post__v1_rum_assets__wrong_sig
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1704164645"
+      X-SOBS-Asset-Signature: "0000000000000000000000000000000000000000000000000000000000000000"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
 - id: post__v1_rum_client_token
   path: /v1/rum/client-token
   methods:
