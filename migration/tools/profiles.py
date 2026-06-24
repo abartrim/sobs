@@ -637,6 +637,18 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # anomalycheck: AI configured (same mock endpoints as notifagent) so evaluateAgentRuleTriggers
+    # runs. The seed inserts a log-volume spike for "anomaly-prod" so v_derived_signals_anomaly
+    # produces an outlier row; an anomaly rule + agent rule make the event flow to the rate-limit
+    # check; a seeded sobs_agent_runs row (1 s before FIXED_EPOCH) makes elapsed_minutes=0.02 ->
+    # skipped_rate_limited (no uuid/now() in response body -- fully deterministic, no mask needed).
+    "anomalycheck": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # issuesraise: raise_issue_from_user_observation runs the agent flow with a github_issue +
     # dlp_check action. AI endpoints = the agent mock (guard + analyze canned); a seeded global
     # github repo+token + the canned POST /issues let the flow create a fresh issue (search 404s
@@ -923,6 +935,7 @@ SEEDED_PROFILES = {
     "workitems",
     "notifagent",
     "notifagentmiss",
+    "anomalycheck",
     "dmbackup",
     "k8s",
     "k8srich",

@@ -2270,6 +2270,134 @@ def seed_notif_agent_miss(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
 
 
+def seed_anomalycheck(db) -> None:
+    # Cover _collect_anomaly_agent_events (app.py 25351-25395): the loop body (25363-25394) that
+    # builds events_by_rule from annotated anomaly rows.  The notifagentmiss profile has "B Anomaly
+    # Ref" pointing at a nonexistent rule id so the view returns nothing; THIS profile seeds REAL
+    # anomaly data so the view does return a row.
+    #
+    # Seeding strategy
+    # ----------------
+    # Service "anomaly-prod", signal "log_volume".  We insert:
+    #   - 59 baseline 1-log rows spread across 59 distinct now()-anchored minute buckets (now()-61m
+    #     to now()-3m), one log per bucket.  The v_derived_signals_1m view aggregates by
+    #     toStartOfMinute(Timestamp), giving 59 buckets each with value=1.
+    #   - 100 spike logs in the now()-1m bucket, giving value=100 in the latest bucket.
+    #
+    # At the latest bucket the 60-row window (59 PRECEDING + CURRENT) contains:
+    #   values = [1]*59 + [100]   mean = (59+100)/60 = 2.65
+    #   stddev = sqrt(avg(v^2) - mean^2) = sqrt((59+10000)/60 - 2.65^2) ~= 12.674
+    #   |100 - 2.65| = 97.35 > 3 * 12.674 = 38.02  ->  anomaly_state = 'outlier'
+    #
+    # A sobs_anomaly_rules threshold rule for (logs, log_volume, anomaly-prod) fires at value=100
+    # (CriticalThreshold=20 < 100): _combine_rule_states('outlier', 'outlier') = 'outlier'.
+    # normalizeAgentTriggerState('outlier') = 'critical'; severity_rank['critical']=2 -> event added.
+    #
+    # An agent rule (TriggerType="anomaly_rule", TriggerRefId="anomrule-0000000001",
+    # TriggerState="any") matches the event (state "critical" matches "any").
+    #
+    # A seeded sobs_agent_runs row with CreatedAt="2024-01-02 03:04:04" (1 s before
+    # FIXED_EPOCH=1704164645) makes elapsed_minutes=round(1/60,2)=0.02 deterministically.
+    # 0.02 < 60 (rate_limit_minutes) -> skipped_rate_limited -> NO uuid/now() in response body.
+    #
+    # Expected response (no masks needed):
+    #   {"ok":true,"evaluated":0,"fired":0,"results":[],
+    #    "agent_runs":[{"rule_id":"agentrule-000000000001","status":"skipped_rate_limited",
+    #                   "elapsed_minutes":0.02}]}
+
+    # 59 one-log baseline minute buckets from now()-61m to now()-3m (value=1 each).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL (number + 3) MINUTE, 'anomaly-prod', 'baseline' "
+        "FROM numbers(59)"
+    )
+    # 100-log spike in now()-1m bucket (value=100 in the latest minute).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 MINUTE, 'anomaly-prod', 'spike' "
+        "FROM numbers(100)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+    _insert(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": "anomrule-0000000001",
+                "Name": "Anomalycheck log_volume threshold",
+                "RuleType": "threshold",
+                "SignalSource": "logs",
+                "SignalName": "log_volume",
+                "ServiceName": "anomaly-prod",
+                "AttrFingerprint": "",
+                "Comparator": "gt",
+                "WarningThreshold": 5.0,
+                "CriticalThreshold": 20.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "agentrule-000000000001",
+                "Name": "Anomaly Prod Watch",
+                "Description": "Auto-triggered by anomaly-prod log_volume outlier.",
+                "TriggerType": "anomaly_rule",
+                "TriggerRefId": "anomrule-0000000001",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+    # Seeded prior run 1 second before FIXED_EPOCH -> elapsed_minutes=round(1/60,2)=0.02.
+    # 0.02 < rate_limit=60 -> skipped_rate_limited; no uuid/now() in response (deterministic).
+    _insert(
+        db,
+        "sobs_agent_runs",
+        [
+            {
+                "Id": "anomrun-0000000000000000001",
+                "RuleId": "agentrule-000000000001",
+                "RuleName": "Anomaly Prod Watch",
+                "TriggerContext": "",
+                "Status": "completed",
+                "GuardDecision": "allow",
+                "DlpResult": "",
+                "Analysis": "",
+                "Suggestion": "",
+                "GithubIssueUrl": "",
+                "ErrorMessage": "",
+                "CreatedAt": "2024-01-02 03:04:04.000000",
+                "CompletedAt": "2024-01-02 03:04:04.000000",
+                "IsDismissed": 0,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_runs FINAL")
+
+
 def seed_notif(db) -> None:
     # Two channels + two rules, each on its OWN id so toggle/delete don't collide on the
     # ReplacingMergeTree version (both actions re-insert at Version 1704164645000). Seed Version
@@ -4671,6 +4799,7 @@ PROFILE_SEEDS = {
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
+    "anomalycheck": seed_anomalycheck,  # anomaly-prod log spike -> outlier event -> rate-limited agent_runs entry
     "notifeval": seed_notifeval,  # rules w/ REAL conditions+matching tags -> eval fire/no-fire/cooldown/disabled arms
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch

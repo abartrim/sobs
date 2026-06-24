@@ -3969,6 +3969,20 @@ routes:
   request:
     method: POST
     json: {}
+# anomalycheck profile: AI configured + an anomaly-prod log spike so v_derived_signals_anomaly
+# produces an 'outlier' row; a matching anomaly rule + agent rule make _collect_anomaly_agent_events
+# add an entry to events_by_rule (app.py 25363-25394 — the lines no prior profile covered). The
+# agent rule is rate-limited (seeded sobs_agent_runs row 1 s before FIXED_EPOCH), so no uuid/now()
+# appears in the response body -> byte-stable without masks. Covers 16 lines in
+# _collect_anomaly_agent_events (25363-25395) plus the rate-limit path (26404-26415).
+- id: post__api_notifications_check__anomalycheck
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: anomalycheck
+  request:
+    method: POST
+    json: {}
 # notifeval profile (Milestone 27): notification rules carrying REAL conditions + matching tag data
 # so check_notifications runs the rule-EVALUATION cluster (_normalize_notification_condition,
 # _evaluate_tag_condition, _check_notification_rule). Four rules cover the evaluator arms:
