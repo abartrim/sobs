@@ -3638,6 +3638,30 @@ routes:
           mode: builder
         data:
           service: api
+# _format_drilldown_time string path (app.py 20757-20774) + _resolve_template_role_indices role_map
+# loop (app.py 20363-20381): both helpers are only exercised when the time column is a plain String
+# (not DateTime) AND visual.role_map has entries. Using a string literal '2024-01-01T00:00:00Z'
+# instead of toDateTime() keeps the result deterministic (no chDateTime masking applies). role_map
+# has two entries: "value"->"value" covers the exact col_index_by_name match path (20370-20372);
+# "p95"->"P95" covers the case-insensitive lower_name_to_index fallback (20374-20377). Both produce
+# the same index as the template default so the chart option is identical to the timeseries golden —
+# only coverage differs. Go resolveTemplateRoleIndices + formatDrilldownTime already handle these
+# paths correctly.
+- id: post__api_dashboards_spec_render_str_time_role_map
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT '2024-01-01T00:00:00Z' AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
+        visual:
+          role_map:
+            value: value
+            p95: P95
 # custom_echarts render path (M42): template_id=custom_echarts forces _render_custom_echarts.
 # Exercises the binding mini-language across every _resolve_custom_binding_expr branch (bare
 # "columns"/"rows"/"records" strings, a bare column-ref string, and dict {from: literal|column|
