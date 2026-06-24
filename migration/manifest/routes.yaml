@@ -3082,6 +3082,41 @@ routes:
   - '"turn_id": ?"[0-9a-f]{16}"'
   - '"error": ?"Query execution error: .*?"'
   mask_reason: 'trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based -> masked (a 32/16-hex value must be present, so an absent id diffs RED). The `error` is masked from its stable "Query execution error: " prefix onward because the trailing text is the raw chdb exception string (UNKNOWN_IDENTIFIER for the missing column) surfaced via Python str(exc) vs Go err.Error() — the underlying libchdb message is identical but the per-runtime exception wrapper around it is not guaranteed byte-identical. Everything that proves the repair LOOP ran is still byte-compared: retry_count=3 (the loop drove all 3 bounded attempts via _vanna_repair_sql), datasets/columns/rows are empty (failure -> no main dataset), and llm_stats.sql_repair is NON-zero (the canned repair-call token usage threaded through last_repair_stats), which is exactly the value that distinguishes the repair-failure path from the success path.'
+# askrepair: _auto_repair_incomplete_cte_sql SUCCESS path. Guard (askrepair-guard/v1) returns SAFE ->
+# _vanna_generate_sql returns a TRUNCATED CTE (the LLM stopped mid-token):
+#   "WITH t AS (SELECT count() AS cnt FROM otel_logs WHERE ServiceName IN ('svc-1','svc-"
+# EXPLAIN fails (unbalanced parens/truncated IN literal). _auto_repair_incomplete_cte_sql fires:
+#   _repair_truncated_in_clause_literals: split on "," -> keep 'svc-1' (2 quotes, even), drop 'svc-
+#   (1 quote, odd) -> IN ('svc-1') ; then balance: openParens=2, closeParens=1 -> append ")" ;
+#   no ")\s*select" in result -> append "\nSELECT * FROM t". Repaired SQL passes EXPLAIN and executes
+#   (cnt=0 on the empty fixture). retry_count=1 (one successful auto-repair iteration) is
+#   byte-compared; datasets has the "main" entry (execution succeeded); llm_stats.sql_repair is
+#   zeroed (no LLM repair call was needed — the local fix succeeded). sql in the response is the
+#   REPAIRED form (not the original truncated string). Distinct mock endpoint (askrepair/v1, URL-keyed
+#   body-ignored fixture) so this does not clobber the `ask` profile's valid-SQL fixture.
+#   trace_id/turn_id are time-based -> masked.
+- id: post__api_query_ask__repair
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: askrepair
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: true
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based ->
+    masked (a 32/16-hex value must be present, so an absent id diffs RED). retry_count=1 is
+    byte-compared (proving _auto_repair_incomplete_cte_sql ran once and fixed the CTE). The
+    repaired SQL (WITH t AS ... SELECT * FROM t) is byte-compared in `sql`. datasets has one
+    "main" entry with columns=["cnt"] and rows=[[0]] (count of otel_logs rows with
+    ServiceName='svc-1', which is 0 on the empty fixture). llm_stats.sql_repair is all-zero
+    (no LLM repair call was made -- the local CTE-balancer succeeded), distinguishing this from
+    the vannarepair failure path (which has non-zero sql_repair stats).
 - id: post__api_query_run
   path: /api/query/run
   methods:

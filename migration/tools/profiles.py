@@ -860,6 +860,25 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # askrepair: query/ask AUTO-REPAIR-SUCCESS path. The guard returns SAFE -> flow runs
+    # _vanna_generate_sql, which returns a TRUNCATED CTE SQL (the LLM output was cut off):
+    #   WITH t AS (SELECT count() AS cnt FROM otel_logs WHERE ServiceName IN ('svc-1','svc-
+    # EXPLAIN fails (unbalanced parens / truncated literal). _auto_repair_incomplete_cte_sql fires:
+    #   _repair_truncated_in_clause_literals keeps 'svc-1' (even quote count) and drops 'svc-
+    #   (odd), appends ")" to balance the single open paren, then appends "\nSELECT * FROM t".
+    # The repaired SQL passes EXPLAIN and executes successfully (cnt=0 on the empty fixture).
+    # retry_count=1 (one auto-repair iteration) is byte-compared in the response. DISTINCT mock
+    # endpoint (askrepair/v1) so the truncated-SQL fixture does not clobber the `ask` profile's
+    # valid-SQL fixture. URL-keyed (body-ignored) fixtures suffice because the URL is distinct per
+    # profile; the body-key approach is not needed here. No DB seed required.
+    "askrepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/askrepair/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/askrepair-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # rumauthmap: a PURE env overlay (no DB seed) that enables BOTH RUM client-auth verification
     # AND JS source-map console-stack remap on POST /v1/rum (ingest_rum). The signing key flips
     # _verify_rum_client_auth on (mode "origin" + fixed HMAC key, same key as `rumtoken`); the
