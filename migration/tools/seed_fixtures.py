@@ -144,6 +144,29 @@ def seed_rum_sessions(db) -> None:
     _insert(db, "hyperdx_sessions", rows)
 
 
+def seed_webtraffic(db) -> None:
+    # Geo aggregation fixture: hyperdx_sessions rows carrying client.ip. The base seed_rum_sessions
+    # rows have none, so the geo query's `HAVING ip != ''` excludes them -> the country totals are
+    # determined ONLY by these rows. IPs are drawn from the geoip parity corpus
+    # (go/cmd/sobs/testdata/geo_parity_corpus.json) so _get_geo_db + _geo_lookup_batch resolve
+    # deterministic countries (8.8.8.8/9.9.9.9 -> US, 1.1.1.1 -> AU), exercising the local
+    # geoip2fast lookup path that no other corpus case reaches. Tie-free per-ip counts (4/2/1) keep
+    # the COUNT(*) ORDER BY DESC stable across capture/replay.
+    rows = []
+    for ip, n in (("8.8.8.8", 4), ("1.1.1.1", 2), ("9.9.9.9", 1)):
+        for _ in range(n):
+            rows.append(
+                {
+                    "Timestamp": _TS,
+                    "ServiceName": "web",
+                    "Body": "pageview",
+                    "EventName": "pageview",
+                    "LogAttributes": {"client.ip": ip, "url": "https://app.example.com/checkout"},
+                }
+            )
+    _insert(db, "hyperdx_sessions", rows)
+
+
 # App-registry fixtures (the example seeder leaves sobs_apps/releases/artifacts empty). These
 # drive the /v1 registry serialize + found paths. Deterministic ids/timestamps so goldens
 # reproduce. DateTime64(3) columns are pre-normalized ("YYYY-MM-DD HH:MM:SS.ffffff").
@@ -4709,6 +4732,7 @@ PROFILE_SEEDS = {
     "enrichlibs": seed_enrichlibs,  # otel_traces sdk/scope rows + 1 CVE -> populated library inventory
     "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
     "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
+    "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup (_get_geo_db + _geo_lookup_batch)
 }
 
 

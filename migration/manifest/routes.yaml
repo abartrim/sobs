@@ -400,6 +400,18 @@ routes:
   - GET
   request:
     method: GET
+# Populated geo aggregation: the webtraffic profile seeds hyperdx_sessions rows with client.ip
+# values from the geoip parity corpus, so api_web_traffic_geo runs the local geoip2fast lookup
+# (_get_geo_db loads the bundled DB, _geo_lookup_batch resolves each IP) -> non-empty
+# country_counts/ip_details. The base seed's ip-less rows are excluded by `HAVING ip != ''`, so
+# the result is fully determined by the seeded rows (US=5, AU=2). No time args -> no now().
+- id: get__api_web_traffic_geo__populated
+  path: /api/web-traffic/geo
+  methods:
+  - GET
+  profile: webtraffic
+  request:
+    method: GET
 - id: get__api_dashboards_spec_options
   path: /api/dashboards/spec/options
   methods:

@@ -516,6 +516,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # blocks all populate. Constant values -> every derived quantity is timestamp-independent; only
     # the now()-derived bucket/last_seen timestamps drift, masked in the route. No env overlay.
     "rumvitals": {},
+    # webtraffic: hyperdx_sessions rows carrying client.ip (from the geoip parity corpus) so
+    # /api/web-traffic/geo runs the local geoip2fast lookup (_get_geo_db + _geo_lookup_batch) and
+    # returns deterministic country totals. No env overlay; no now() (no time-window args).
+    "webtraffic": {},
     # tagsuggest: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags + sobs_log_attr_keys
     # so /api/settings/tags/condition-suggestions returns non-empty ranked suggestions for every
     # scope/target/field branch. No env overlay — just the (isolated) seed. All seed rows use the
@@ -964,6 +968,7 @@ SEEDED_PROFILES = {
     "summaryrich",
     "enrichlibs",
     "rumasset",
+    "webtraffic",
 }
 
 
