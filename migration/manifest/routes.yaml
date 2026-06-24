@@ -6308,6 +6308,34 @@ routes:
     - {type: pageview, timestamp: '2023-06-01T15:00:01Z', sessionId: s2, url: https://app.example/}
     - not-a-dict
     - {type: pageview, timestamp: '2023-06-01T15:00:02Z', sessionId: s3, url: https://app.example/cart}
+# _handle_browser_context_delta WRITE path (app.py 9961-10005): an event carrying a full
+# browserContext dict (non-empty) + sessionId + contextHash causes the helper to write the
+# context into _RUM_BROWSER_CONTEXT_CACHE and then build browser.context.<key> LogAttributes.
+# The response is {"accepted": 1} (deterministic); the coverage gain is the cache-write +
+# attrs-building branches (lines 9977-10004) that the empty-body / no-session-id cases skip.
+# Isolated rumingest profile (writes to hyperdx_sessions only).
+- id: post__v1_rum__browser_context
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumingest
+  request:
+    method: POST
+    json:
+      events:
+      - type: pageview
+        timestamp: '2023-06-01T16:00:00Z'
+        sessionId: bc-sess-001
+        contextHash: abc123def456
+        url: https://app.example/home
+        browserContext:
+          browserName: Chrome
+          browserVersion: '120.0'
+          osName: macOS
+          osVersion: '14.0'
+          timezone: America/New_York
+          language: en-US
+          deviceClass: desktop
 - id: post__api_enrichment_cve_scan
   path: /api/enrichment/cve/scan
   methods:
