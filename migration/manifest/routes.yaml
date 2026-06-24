@@ -5203,6 +5203,22 @@ routes:
     headers:
       Content-Type: application/x-protobuf
     body_b64: 'CksKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjASLgoJY3B1LnVzYWdlKiEKHxkAMgEwt2imFzoLCgRjb3JlEgMKATAhAAAAAAAA4D8='
+# _proto_metrics_to_events sum + histogram branches (app.py 9302-9348): the gauge fixture above only
+# exercises the gauge branch. This fixture adds a Sum metric (requests.total, cumulative, monotonic,
+# asInt=100) and a Histogram metric (latency.ms, delta, count=5 sum=250.0 buckets=[1,2,1,1]
+# bounds=[10,50,200]) so both branches execute and the response is {"accepted": 2}.
+# Regenerate the body_b64 with:
+#   go test ./cmd/sobs -run TestGenerateOTLPProtoFixturesSumHist -v
+- id: post__v1_metrics__proto_sum_hist
+  path: /v1/metrics
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/x-protobuf
+    body_b64: 'Cv8BChcKFQoMc2VydmljZS5uYW1lEgUKA3dlYhLjARJRCg5yZXF1ZXN0cy50b3RhbBITVG90YWwgcmVxdWVzdCBjb3VudBoBMTonCiEZADIBMLdophc6DQoDZW52EgYKBHByb2QxZAAAAAAAAAAQAhgBEo0BCgpsYXRlbmN5Lm1zEg9SZXF1ZXN0IGxhdGVuY3kaAm1zSmoKZhkAMgEwt2imFyEFAAAAAAAAACkAAAAAAEBvQDIgAQAAAAAAAAACAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAA6GAAAAAAAACRAAAAAAAAASUAAAAAAAABpQEoNCgNlbnYSBgoEcHJvZBAB'
 # OTLP Content-Encoding decompression: the OTel Collector's otlphttp exporter gzips by default, so
 # the server must inflate gzip/deflate request bodies before parsing (app.py _decompress_request_body
 # / Go decompressRequestBody). These compressed bodies decode to the same OTLP-JSON as the
