@@ -752,6 +752,25 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aitoolsrich: like `aitools` but with a model name containing "tool" so _model_supports_tools
+    # returns True -> tools is non-empty -> _stream_llm_endpoint (app.py 4793-4795) executes
+    # `payload["tools"] = tools; payload["tool_choice"] = "auto"` (previously dark lines). The SSE
+    # fixture (6da220bd…) prepends three malformed lines before the real events to cover:
+    #   "event: ping" -> non-"data:" line -> line 4815 continue
+    #   "data:" -> empty data after strip -> line 4818 continue
+    #   "data: {invalid}" -> json.JSONDecodeError -> lines 4823-4824 continue
+    # The real events (content delta + tool_calls + finish_reason) are identical to aitools, so the
+    # tool_proposals and turn_summary are the same. The done event carries
+    # "model":"sobs-parity-tool-model" (instead of "sobs-parity-model") — byte-compared on both sides.
+    # Guard fixture 3e967d2a… (POST aitoolsrich-guard/v1/chat/completions): same "safe" SAFE reply.
+    # URL-keyed (mock ignores body) — no body-key needed since the response is the same regardless.
+    "aitoolsrich": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsrich/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsrich-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-tool-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # dmttl: data-management save with apply_ttl=1. No env / no seed — the OTel tables already
     # exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; isolated so
     # those schema mutations (and TTL materialization) never ripple into base otel readers.

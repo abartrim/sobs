@@ -4469,6 +4469,44 @@ routes:
       chat_id: chat-parity-toolstrm1
       turn_id: turn-parity-toolstrm1
       stream: true
+# aitoolsrich (non-streaming): like aitools but with model "sobs-parity-tool-model" so _model_supports_tools
+# returns True -> _helper_tools_for_page returns non-empty tools -> _stream_llm_endpoint (app.py 4793-4795)
+# executes `payload["tools"] = tools; payload["tool_choice"] = "auto"` (previously dark). The SSE fixture
+# 6da220bd… prepends three malformed-but-skipped lines before the real events, driving:
+#   line 4815: "event: ping" -> non-"data:" -> continue
+#   line 4818: "data:" -> empty data after strip -> continue
+#   lines 4823-4824: "data: {invalid}" -> json.JSONDecodeError -> continue
+# The real events (content delta + tool_calls + finish_reason) are identical to aitools fixtures, so the
+# tool_proposals, turn_summary, and done event structure are byte-identical on both sides (except
+# "model":"sobs-parity-tool-model"). The on-page propose_ui_action tool is validated + signed identically
+# by both runtimes -> max_tool_rounds cap fires, producing 4 identical proposals.
+- id: post__api_ai_helper_tools__aitoolsrich
+  path: /api/ai/helper
+  profile: aitoolsrich
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply a SQL filter to show only error logs.
+      page: /logs
+      chat_id: chat-parity-atrich1
+      turn_id: turn-parity-atrich1
+# aitoolsrich streaming: same as above but stream:true to also cover _generate() streaming path
+# with a tool-supporting model + malformed SSE lines in the fixture.
+- id: post__api_ai_helper_tools__aitoolsrich__stream
+  path: /api/ai/helper
+  profile: aitoolsrich
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply a SQL filter to show only error logs.
+      page: /logs
+      chat_id: chat-parity-atrichstrm1
+      turn_id: turn-parity-atrichstrm1
+      stream: true
 # Streaming memory-write variant (stream:true) of the aihelpermem turn: byte-tests the Go streaming
 # branch's memory-consolidation path (app.py _generate 28000-28038 — _extract_memory_candidates,
 # _consolidate_memory_candidates, _upsert_ai_memory write, saved_memory_ids in the done event). The
