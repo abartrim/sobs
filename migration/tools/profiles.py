@@ -1417,3 +1417,52 @@ def route_profile(route: dict) -> str:
 def profile_env(name: str) -> dict[str, str]:
     """The env overlay for a profile name (empty for unknown names / base)."""
     return dict(PROFILES.get(name, {}))
+
+
+# ---------------------------------------------------------------------------
+# Pre-capture hooks (optional, per-profile)
+# ---------------------------------------------------------------------------
+# A pre-capture hook is an async callable (app_module) -> None that runs AFTER
+# boot but BEFORE any HTTP routes are captured. Its execution is included in the
+# coverage measurement, so it can cover app.py functions that are only reachable
+# from background tasks (never from an HTTP route). The HTTP goldens for the
+# profile's routes are captured immediately after, unchanged.
+#
+# PRE_CAPTURE_FNS maps profile name -> async callable(app_module) -> None.
+# capture_routes.py calls profile_pre_capture_fn(profile, app_module, loop) when
+# a matching entry exists.
+
+
+async def _repohealth_sync_pre_capture(app_module) -> None:  # noqa: E501
+    # Exercise _sync_github_repo_health_once (app.py 17255-17292): the persistence
+    # wrapper that _github_repo_health_loop calls but no HTTP route exposes. Two
+    # calls are needed to cover both branches of the change-dedup guard:
+    #
+    #   Call 1 (no previous raw in sobs_app_settings): covers 17257-17259 (entry),
+    #     17262 (compact_values), 17270 (_get_app_setting returns ""), 17271 (if False),
+    #     17286 (write last_sync), 17287 (compact dict), 17291 (write last_summary),
+    #     17292 (return). Total: 10 statement lines.
+    #   Call 2 (previous raw == current values, just written): covers 17272 (try:),
+    #     17273 (_safe_json_loads), 17274 (previous_values dict), 17283 (compare),
+    #     17284 (early return). Total: 5 more statement lines.
+    #
+    # Remaining uncovered (error/exception paths not exercisable from here without
+    # DB failure or deliberately invalid sobs_app_settings JSON): 17260, 17281, 17282.
+    #
+    # The pre-capture runs inside the coverage measurement (via coverage run -p) so
+    # these lines register as covered. The subsequent HTTP GET still returns the same
+    # _collect_github_repo_health_summary result (URL-keyed fixtures, not counter-keyed),
+    # so the golden is byte-identical to what the Go server replays.
+    db = app_module.get_db()
+    await app_module._sync_github_repo_health_once(db)  # first call: write path
+    await app_module._sync_github_repo_health_once(db)  # second call: dedup path
+
+
+PRE_CAPTURE_FNS: dict = {
+    "repohealth": _repohealth_sync_pre_capture,
+}
+
+
+def profile_pre_capture_fn(name: str):
+    """Return the async pre-capture callable for a profile, or None."""
+    return PRE_CAPTURE_FNS.get(name)

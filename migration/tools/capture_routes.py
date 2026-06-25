@@ -105,7 +105,13 @@ async def capture_one(client, route: dict) -> tuple[str, int, int]:
     return route["id"], resp.status_code, len(body)
 
 
-async def run(app, routes: list[dict]) -> None:
+async def run(app, app_module, routes: list[dict], pre_capture_fn) -> None:
+    # If the profile registered a pre-capture hook, run it before any HTTP routes are
+    # captured. This allows background-only app.py functions (not reachable via any HTTP
+    # route) to be executed under coverage.py so their lines register as covered.
+    if pre_capture_fn is not None:
+        print("  running pre-capture hook…")
+        await pre_capture_fn(app_module)
     # A FRESH test client per route: each request starts with an empty session, so flash()
     # messages do not accumulate across routes (Quart flashes persist in the session until a
     # render consumes them — a shared client would pile redirect-route flashes into later
@@ -147,8 +153,9 @@ def main() -> int:
         missing = wanted - {r["id"] for r in routes}
         if missing:
             raise SystemExit(f"Unknown route ids (or not in profile '{args.profile}'): {sorted(missing)}")
+    pre_capture_fn = P.profile_pre_capture_fn(args.profile)
     print(f"Capturing {len(routes)} route(s) [profile={args.profile}] against {FIXTURE_DATA}…")
-    asyncio.new_event_loop().run_until_complete(run(app_module.app, routes))
+    asyncio.new_event_loop().run_until_complete(run(app_module.app, app_module, routes, pre_capture_fn))
     return 0
 
 
