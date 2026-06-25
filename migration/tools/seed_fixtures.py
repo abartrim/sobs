@@ -2017,6 +2017,165 @@ def seed_issues_reuse(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
 
 
+def seed_issues_reuse2(db) -> None:
+    # issuereuse2: like seed_issues_reuse but targets a DISTINCT repo (acme/reuse2) and seeds TWO
+    # work items designed to expose three additional branches of _choose_github_issue_outcome:
+    #   * W0 has an EMPTY IssueUrl -> skipped at line 5415 ("continue" on empty IssueUrl)
+    #   * W1 has IssueUrl=#41 with dedup_key="acme reuse2||errors|timeouterror|critical" matching
+    #     the request trigger -> becomes a local candidate that joins the copilot-assignee open issue
+    # The open-issues fixture (fcf0aee5…) returns #41 WITH copilot-swe-agent[bot] as an assignee AND
+    # a second open issue #100 that has no matching local candidate (exercises the open-issues-only
+    # loop at line 5442). The dedup-key fallback classifies #41 as "same" -> reuse path; the copilot
+    # assignee on the open issue overrides assignment_status to "active" (line 5484); with
+    # assign_copilot=true and active status, the reuse-path copilot block fires (lines 5529-5530).
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/reuse2", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+    _insert(
+        db,
+        "sobs_github_work_items",
+        [
+            {
+                # W0: empty IssueUrl -> skipped by the "if not issue_url" guard (line 5415)
+                "Id": "c2000000000000000000000000000001",
+                "CreatedAt": "2024-01-02 03:05:01.000000",
+                "CompletedAt": "2024-01-02 03:05:01.000000",
+                "AgentRunId": "ar200000000000000000000000000001",
+                "AgentRuleId": "",
+                "AgentRuleName": "User Raised Issue (errors)",
+                "AgentAction": "github_issue",
+                "ServiceName": "",
+                "AnomalyRuleId": "",
+                "AnomalyState": "critical",
+                "SignalSource": "errors",
+                "SignalName": "TimeoutError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/reuse2",
+                "DedupKey": "acme reuse2||errors|timeouterror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 0,
+                "IssueUrl": "",
+                "CanonicalIssueNumber": 0,
+                "CanonicalIssueUrl": "",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                "IssueState": "",
+                "IssueTitle": "",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # W1: IssueUrl=#41, dedup_key matches the proposed incident -> becomes local candidate
+                # The open-issues fixture returns #41 with copilot-swe-agent[bot] assignee
+                "Id": "c2000000000000000000000000000002",
+                "CreatedAt": "2024-01-02 03:05:02.000000",
+                "CompletedAt": "2024-01-02 03:05:02.000000",
+                "AgentRunId": "ar200000000000000000000000000002",
+                "AgentRuleId": "",
+                "AgentRuleName": "User Raised Issue (errors)",
+                "AgentAction": "github_issue",
+                "ServiceName": "",
+                "AnomalyRuleId": "",
+                "AnomalyState": "critical",
+                "SignalSource": "errors",
+                "SignalName": "TimeoutError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/reuse2",
+                "DedupKey": "acme reuse2||errors|timeouterror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 41,
+                "IssueUrl": "https://github.com/acme/reuse2/issues/41",
+                "CanonicalIssueNumber": 41,
+                "CanonicalIssueUrl": "https://github.com/acme/reuse2/issues/41",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                "IssueState": "open",
+                "IssueTitle": "Checkout latency: TimeoutError spike",
+                "AnalysisSummary": "Prior root-cause analysis.",
+                "SuggestionSummary": "Prior suggested fix.",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
+
+
+def seed_issues_create_err(db) -> None:
+    # issuecreateerr: like seed_issues_raise but targets a DISTINCT repo (acme/issue-err) whose
+    # POST /issues fixture returns 422. This exercises _create_github_issue_record's HTTPStatusError
+    # handler (lines 6421-6423). The open-issues fixture for acme/issue-err has no file -> 404 ->
+    # _fetch_open_github_issues catches the error and returns [] -> no candidates -> unrelated ->
+    # new issue creation attempted -> 422 -> create_failed -> 502 response from raise route.
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {"Key": "ai.github_repo", "Value": "acme/issue-err", "IsDeleted": 0, "Version": 1704164644000},
+            {"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000},
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
+def seed_onbupdate_err(db) -> None:
+    # onbupdateerr: like seed_onbupdate but targets a DISTINCT repo (acme/onboard-err) whose PATCH
+    # /issues/5 fixture returns 422. The open-issues fixture returns issue #5 with a title matching
+    # the CI metadata issue -> update path taken; _github_get_issue_detail confirms new state -> PATCH
+    # -> 422 -> _update_github_issue_record's HTTPStatusError handler fires (lines 33033-33038),
+    # returning {"error": "GitHub issue update failed: Validation Failed"}. The outer handler surfaces
+    # it as ci_issue: {error: "..."} with ok: true (line 33838).
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f2000000000000000000000000000001",
+                "Name": "Onboard Err Service",
+                "Slug": "onboard-err-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/onboard-err",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
 def seed_workitems(db) -> None:
     # Drive the SYNCHRONOUS GitHub work-item backfill chain awaited inside GET /api/work-items
     # (_maybe_backfill_github_work_item_links -> _backfill_github_work_item_links). A non-empty
@@ -4883,6 +5042,9 @@ PROFILE_SEEDS = {
     "onbupdate": seed_onbupdate,  # M37: app+token (distinct repo) -> onboarding create-issues UPDATE branch (PATCH)
     "issuesraise": seed_issues_raise,  # global github repo+token -> issues/raise agent flow creates an issue
     "issuereuse": seed_issues_reuse,  # prior work item + matching open issue -> issues/raise reuses it (dedup)
+    "issuereuse2": seed_issues_reuse2,  # W0(empty url)+W1(#41) + copilot-assignee open issue -> 5415/5442/5484/5529
+    "issuecreateerr": seed_issues_create_err,  # acme/issue-err POST 422 -> HTTPStatusError handler (6421-6423) + 502
+    "onbupdateerr": seed_onbupdate_err,  # acme/onboard-err PATCH 422 -> HTTPStatusError handler (33033-33038)
     "workitems": seed_workitems,  # token + 3 stale work items -> /api/work-items SYNC backfill refreshes each
     "githubtoken": seed_github_token,
     "onboardrepos": seed_onboard_repos,  # global github token -> onboarding list/inspect token-USED branch

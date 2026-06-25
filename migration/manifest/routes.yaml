@@ -4143,6 +4143,41 @@ routes:
   mask:
   - '"run_id": ?"[^"]*"'
   mask_reason: run_id is a server-generated uuid4; issue_url/dedup_decision/copilot_assignment_status/reason/status are byte-compared.
+# issuereuse2 profile: W0(empty IssueUrl->skipped at 5415) + W1(#41,matching dedup key) seeded; open
+# issues fixture returns #41 WITH copilot-swe-agent[bot] assignee + #100 (extra open issue, no local
+# candidate -> added via open-issues-only loop at line 5442). Dedup-key fallback matches W1 -> "same"
+# -> reuse path; copilot assignee overrides assignment_status to "active" (line 5484); assign_copilot=true
+# + active status -> blocked "issue is already being worked by Copilot" (lines 5529-5530).
+- id: post__api_issues_raise__reuse2
+  path: /api/issues/raise
+  methods:
+  - POST
+  profile: issuereuse2
+  request:
+    method: POST
+    json:
+      source_page: errors
+      err_type: TimeoutError
+      error_id: err-002
+      assign_copilot: true
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; issue_url/dedup_decision/copilot_assignment_status/reason are byte-compared.
+# issuecreateerr profile: acme/issue-err POST /issues fixture returns 422 -> HTTPStatusError handler
+# in _create_github_issue_record fires (lines 6421-6423) -> create_failed -> 502 response.
+- id: post__api_issues_raise__create_err
+  path: /api/issues/raise
+  methods:
+  - POST
+  profile: issuecreateerr
+  request:
+    method: POST
+    json:
+      source_page: errors
+      err_type: TimeoutError
+  mask:
+  - '"run_id": ?"[^"]*"'
+  mask_reason: run_id is a server-generated uuid4; error/source/source_page are byte-compared.
 - id: post__api_reports_import
   path: /api/reports/import
   methods:
@@ -4671,6 +4706,23 @@ routes:
       app_id: f1000000000000000000000000000001
       create_ci: true
       create_otel: true
+# onbupdateerr profile: acme/onboard-err open-issues fixture returns issue #5 with a title matching
+# the CI metadata issue -> update path taken; _github_get_issue_detail confirms new state (open,
+# comments=0, created==updated) -> _update_github_issue_record PATCHes -> 422 fixture ->
+# HTTPStatusError handler fires (lines 33033-33038) -> {"error": "GitHub issue update failed:
+# Validation Failed"}; outer handler surfaces it as ci_issue: {error: "..."} with ok: true.
+# create_otel=false so only the CI branch runs and we get a deterministic single-issue response.
+- id: post__api_onboarding_create_issues__update_err
+  path: /api/onboarding/create-issues
+  methods:
+  - POST
+  profile: onbupdateerr
+  request:
+    method: POST
+    json:
+      app_id: f2000000000000000000000000000001
+      create_ci: true
+      create_otel: false
 # api_onboarding_create_issues early-validation returns (deterministic JSON, no github needed):
 # no-issue-type, no app_id/repo, unparseable repo, no token, app-not-found. Plus realtime-without-a
 # -saved-app (onboard profile has a token but the ghost repo matches no app).

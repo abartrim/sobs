@@ -694,6 +694,41 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # issuereuse2: like issuereuse but covers three additional branches of _choose_github_issue_outcome:
+    #   (1) local work item W0 has an EMPTY IssueUrl -> continue (line 5415)
+    #   (2) open-issues fixture returns a SECOND issue (#100) that has no local candidate -> appended
+    #       via the open-issues-only loop (line 5442)
+    #   (3) open-issues fixture for #41 includes "copilot-swe-agent[bot]" assignee -> assignment_status
+    #       overridden to "active" (line 5484); with assign_copilot=true and active status the reuse-path
+    #       copilot block fires (lines 5529-5530, "issue is already being worked by Copilot").
+    # Uses a DISTINCT repo (acme/reuse2) so its open-issues fixture (fcf0aee5…) never ripples elsewhere.
+    "issuereuse2": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # issuecreateerr: like issuesraise but the GitHub POST /issues fixture returns 422 (Validation
+    # Failed), so _create_github_issue_record's HTTPStatusError handler fires (lines 6421-6423),
+    # returning {"error": "GitHub issue creation failed: Validation Failed"}. The outer
+    # raise_issue_from_user_observation handler then returns 502 (create_failed path).
+    # Uses a DISTINCT repo (acme/issue-err) whose POST fixture (7fd2a848…) returns 422 and whose
+    # open-issues lookup has no fixture -> 404 -> [] so no candidates exist.
+    "issuecreateerr": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_DLP_ENDPOINT_URL": "http://sobs-ai.mock/dlp/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # onbupdateerr: like onbupdate but the GitHub PATCH fixture for issue #5 in acme/onboard-err
+    # returns 422, so _update_github_issue_record's HTTPStatusError handler fires (lines 33033-33038),
+    # returning {"error": "GitHub issue update failed: Validation Failed"}. The outer
+    # api_onboarding_create_issues handler surfaces it as ci_issue: {error: "..."} with ok: true.
+    # Uses a DISTINCT repo (acme/onboard-err) so the failing PATCH fixture never ripples into onbupdate.
+    "onbupdateerr": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # workitems: the github mock + a seeded ai.github_token + 3 stale work items so the SYNCHRONOUS
     # backfill awaited inside GET /api/work-items (not the background page caller) refreshes each row
     # from the canned issue-GET / PR-search fixtures and returns the updated items. Only the upstream
@@ -1035,6 +1070,9 @@ SEEDED_PROFILES = {
     "agentctx",
     "agentcopilot",
     "issuereuse",
+    "issuereuse2",
+    "issuecreateerr",
+    "onbupdateerr",
     "workitems",
     "notifagent",
     "notifagentmiss",
