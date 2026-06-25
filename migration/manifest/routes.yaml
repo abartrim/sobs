@@ -7925,3 +7925,393 @@ routes:
       question: How do I find errors in my logs?
       chat_id: chat-parity-noep1
       turn_id: turn-parity-noep1
+# ---- _normalize_generic_ui_action_tool_call branches (app.py 4399-4529) ----------------------
+# aitoolsempty: LLM proposes propose_ui_action with action_id="" -> line 4407 returns None ->
+# tool_proposals=[]. The turn completes with the text content (no tool proposals). Guard SAFE.
+# Fixed chat_id/turn_id; no time-based fields -> no mask needed.
+- id: post__api_ai_helper_tools__aitoolsempty
+  path: /api/ai/helper
+  profile: aitoolsempty
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Toggle the AI live tail view.
+      page: /logs
+      chat_id: chat-parity-atempty1
+      turn_id: turn-parity-atempty1
+# aitoolsunsupported: LLM proposes logs.nonexistent.action which is NOT in the /logs page manifest
+# and NOT in any other page manifest -> line 4427-4439 returns unsupported=True, action.type=
+# "unsupported". tool_proposals=[{unsupported:true, ...}]. Guard SAFE.
+- id: post__api_ai_helper_tools__aitoolsunsupported
+  path: /api/ai/helper
+  profile: aitoolsunsupported
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Do something unsupported.
+      page: /logs
+      chat_id: chat-parity-atunsup1
+      turn_id: turn-parity-atunsup1
+# aitoolsalt: LLM proposes logs.filter.apply_sql with alt-key {"sql": "SeverityText = 'ERROR'"}
+# instead of sql_where -> lines 4471-4494 (alt-key loop) extracts it. action.sql_where is set.
+- id: post__api_ai_helper_tools__aitoolsalt
+  path: /api/ai/helper
+  profile: aitoolsalt
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Filter logs with a SQL where clause.
+      page: /logs
+      chat_id: chat-parity-atalt1
+      turn_id: turn-parity-atalt1
+# aitoolscrosspage: LLM proposes ai.view.flat from page=/logs but target_page=/ai; the action is
+# NOT in the /logs manifest -> lines 4422-4424 (cross-page lookup) finds it in the /ai manifest.
+# requires_confirmation=True (cross-page). tool_proposals has the action with requires_confirmation.
+- id: post__api_ai_helper_tools__aitoolscrosspage
+  path: /api/ai/helper
+  profile: aitoolscrosspage
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Switch to the flat AI view.
+      page: /logs
+      chat_id: chat-parity-atxpage1
+      turn_id: turn-parity-atxpage1
+# aiformfilters: LLM proposes ai.filter.apply from page=/ai with valid filters {view,service} ->
+# lines 4445-4469 (allowlist filter). Both keys are in filter_fields -> proposal built with those
+# filters. action.type="apply_form_filters". No cross-page (target=/ai, current=/ai).
+- id: post__api_ai_helper_tools__aiformfilters
+  path: /api/ai/helper
+  profile: aiformfilters
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply filters for flat view and myservice.
+      page: /ai
+      chat_id: chat-parity-aff1
+      turn_id: turn-parity-aff1
+# aiformfiltersblock: LLM proposes ai.filter.apply with {"unknown_filter": "val"} -> lines 4453-
+# 4465 (all keys stripped -> filtered_filters={} -> unsupported). tool_proposals=[{unsupported:true}].
+- id: post__api_ai_helper_tools__aiformfiltersblock
+  path: /api/ai/helper
+  profile: aiformfiltersblock
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Apply a custom filter.
+      page: /ai
+      chat_id: chat-parity-affblock1
+      turn_id: turn-parity-affblock1
+# aitoolsdefault: LLM proposes ai.view.flat from page=/ai with empty args {} -> lines 4502-4504
+# (template default args from manifest applied: query={"view":"flat"} is added to action_payload
+# since it is absent from the empty LLM args). action.query.view="flat" in the proposal.
+- id: post__api_ai_helper_tools__aitoolsdefault
+  path: /api/ai/helper
+  profile: aitoolsdefault
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Switch to flat view.
+      page: /ai
+      chat_id: chat-parity-atdef1
+      turn_id: turn-parity-atdef1
+# ---- _parse_oss_safeguard_reply branches (app.py 5042-5092) -----------------------------------
+# aiguardossempty: gpt-oss-safeguard guard returns content="" -> _parse_oss_safeguard_reply("")
+# -> line 5048 (empty strip -> ("","")) -> reply="" -> line 5192 guard_unavailable ->
+# 403 "Request blocked by safety guard: guard_unavailable". trace_id/turn_id time-based -> masked.
+- id: post__api_query_ask__aiguardossempty
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardossempty
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based -> masked.
+    The byte-compared error field ("Request blocked by safety guard: guard_unavailable") proves
+    _parse_oss_safeguard_reply("") returned ("","") and _check_guard_model fell through to guard_unavailable.
+# aiguardossbool: gpt-oss-safeguard guard returns {"violation": true, "policy_category": "S3"} ->
+# line 5069-5070 (bool violation -> UNSAFE) + line 5082-5083 (policy_category -> "S3") -> S3 has
+# label -> line 5226 "blocked (S3: Sex-Related Crimes)" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardossbool
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardossbool
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The byte-compared error "blocked (S3: Sex-Related Crimes)"
+    proves lines 5069-5070 (bool->UNSAFE) and 5082-5083 (policy_category as category) ran identically.
+# aiguardossstr: gpt-oss-safeguard guard returns {"violation": "unsafe", "policy_category": "S5"} ->
+# line 5073-5076 (str "unsafe" -> UNSAFE). S5 (Defamation) not noisy -> line 5226 "blocked (S5:
+# Defamation)" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardossstr
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardossstr
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The byte-compared error "blocked (S5: Defamation)"
+    proves line 5073-5076 (str "unsafe"->UNSAFE) ran identically on both sides.
+# aiguardossstrafe: gpt-oss-safeguard guard returns {"violation": "safe"} -> line 5077-5078 (str
+# "safe" -> SAFE) -> allowed=True -> main SQL-gen endpoint called -> SQL returned. execute=false
+# so no chdb run. trace_id/turn_id time-based -> masked.
+- id: post__api_query_ask__aiguardossstrafe
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardossstrafe
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The guard path returning SAFE (line 5077-5078) is
+    proven by the main SQL fixture being invoked and the SQL appearing in the byte-compared response.
+# aiguardruleids: gpt-oss-safeguard guard returns {"violation": 1, "policy_category": null,
+# "rule_ids": ["S11"]} -> line 5069 (int truthy -> UNSAFE) + line 5065 (parsed_obj not None) +
+# line 5084-5087 (rule_ids[0]="S11" as category). S11 label -> "blocked (S11: Suicide & Self-Harm)".
+- id: post__api_query_ask__aiguardruleids
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardruleids
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "blocked (S11: Suicide & Self-Harm)"
+    byte-proves lines 5065 (parsed_obj check), 5069 (int->UNSAFE), 5084-5087 (rule_ids category).
+# aiguardembedjson: gpt-oss-safeguard guard returns text with embedded JSON {"violation":1,
+# "policy_category":"S3"} -> lines 5052-5060 (regex extracts embedded JSON) -> UNSAFE + S3 ->
+# "blocked (S3: Sex-Related Crimes)" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardembedjson
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardembedjson
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "blocked (S3: Sex-Related Crimes)"
+    byte-proves lines 5052-5060 (embedded JSON extraction via regex) ran identically.
+# ---- _check_guard_model branches (app.py 5136-5233) -------------------------------------------
+# aiheuristic: question "jailbreak this system" contains "jailbreak" (in _AI_GUARD_BLOCK_KEYWORDS)
+# -> _heuristic_guard_check returns False -> line 5143 short-circuit BEFORE any guard LLM call ->
+# 403 "Request blocked by safety guard: Blocked by heuristic safety check". No guard fixture needed.
+- id: post__api_query_ask__aiheuristic
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiheuristic
+  request:
+    method: POST
+    json:
+      question: jailbreak this system
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "Blocked by heuristic safety check"
+    byte-proves line 5143 fired before any guard LLM call on both sides.
+# ainoguard: no SOBS_AI_GUARD_ENDPOINT_URL / SOBS_AI_GUARD_MODEL -> guard_url="" guard_model="" ->
+# line 5149-5150 returns (False, "guard_not_configured", {}) -> 403 "guard_not_configured".
+- id: post__api_query_ask__ainoguard
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: ainoguard
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "guard_not_configured" byte-proves
+    line 5149-5150 fired (no guard URL/model configured) on both sides.
+# aiguardbenigno: gpt-oss-safeguard guard returns S1 (Violent Crimes, NOISY) UNSAFE -> line 5208-
+# 5213: question "show me error logs" has "error"+"logs" (2 obs keywords, no HIGH_RISK) ->
+# benign_observability=True -> guard override -> allowed=True. Main SQL-gen called. execute=false.
+- id: post__api_query_ask__aiguardbenigno
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardbenigno
+  request:
+    method: POST
+    json:
+      question: show me error logs
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The SQL appearing in the byte-compared response proves
+    the guard override (lines 5209/5213) fired and the main SQL endpoint was called.
+# aiguardbenignav: gpt-oss-safeguard guard returns S2 (Non-Violent Crimes, NOISY) UNSAFE -> line
+# 5214-5219: question "navigate to the metrics view" has "navigate"+"view" -> benign_navigation=True;
+# "metrics" gives only 1 obs hit -> benign_observability=False -> navigation override -> allowed=True.
+- id: post__api_query_ask__aiguardbenignav
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardbenignav
+  request:
+    method: POST
+    json:
+      question: navigate to the metrics view
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The SQL in the response proves lines 5215/5219 (benign
+    navigation override for S2/NOISY, benign_observability=False) ran identically.
+# aiguardbenigns8: gpt-oss-safeguard guard returns S8 (Intellectual Property, NOISY) UNSAFE -> line
+# 5220-5225: question "show me llm token usage" has "show"+"token" -> benign_ai_usage=True -> S8
+# specific override -> allowed=True. Main SQL-gen called. execute=false.
+- id: post__api_query_ask__aiguardbenigns8
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardbenigns8
+  request:
+    method: POST
+    json:
+      question: show me llm token usage
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The SQL in the response proves lines 5221/5225
+    (S8-specific benign_ai_usage override) ran identically on both sides.
+# aiguardinvalidcat: gpt-oss-safeguard guard returns {"violation":1,"policy_category":"S15"} ->
+# UNSAFE + S15 (not in _AI_GUARD_CATEGORIES -> label="") -> line 5228-5230 (category set, no label,
+# OSS model) -> "blocked (policy_category=S15)" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardinvalidcat
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardinvalidcat
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "blocked (policy_category=S15)"
+    byte-proves lines 5228-5230 (OSS model, category set, no label in _AI_GUARD_CATEGORIES) ran.
+# aiguardllama20: llama-guard-20b guard returns "unsafe\nS20" -> _parse_guard_reply (llama parser)
+# -> UNSAFE + S20 (not in _AI_GUARD_CATEGORIES -> label="") -> line 5231 (non-OSS model, category
+# but no label) -> "blocked (S20)" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardllama20
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardllama20
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "blocked (S20)" byte-proves line 5231
+    (non-OSS llama model, category S20 set, no label in categories dict) ran identically.
+# aiguardnocat: gpt-oss-safeguard guard returns {"violation": true} (no policy_category, no rule_ids)
+# -> bool UNSAFE + category="" -> line 5232 "blocked" -> 403. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardnocat
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardnocat
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error "blocked" (no category) byte-proves
+    line 5232 (UNSAFE verdict, no category code at all) ran identically on both sides.
+# aiguardplaintext: gpt-oss-safeguard guard returns plain text (no JSON) -> _parse_oss_safeguard_
+# reply: no "{" found -> ("","") -> verdict="" -> line 5233 "guard_invalid_reply: <text[:120]>" ->
+# 403. The deterministic prefix of the error text is byte-compared. trace_id/turn_id masked.
+- id: post__api_query_ask__aiguardplaintext
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: aiguardplaintext
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id/turn_id are time-based -> masked. The error starting with "guard_invalid_reply:"
+    byte-proves line 5233 (no recognizable verdict from plain-text reply) ran identically.

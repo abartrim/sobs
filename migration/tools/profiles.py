@@ -1053,6 +1053,253 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # ---- _normalize_generic_ui_action_tool_call coverage (app.py 4399-4529) -------------------
+    # aitoolsempty: LLM proposes propose_ui_action with action_id="" -> line 4407 returns None ->
+    # tool_proposals stays empty. Guard returns SAFE (sobs-guard-model, llama path). Distinct mock
+    # URLs ensure no fixture collision. SSE fixture a59e76e4… carries the empty action_id tool call.
+    # No memory candidates -> saved_memory_ids=[]. The whole turn is byte-compared (no masks).
+    "aitoolsempty": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsempty/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsempty-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aitoolsunsupported: LLM proposes logs.nonexistent.action which is NOT in the /logs page
+    # manifest -> line 4427-4439 ("unsupported action") -> None -> tool_proposals=[]. Lines 4427-
+    # 4439 covered. SSE fixture c6ff1bd6… carries the unknown action_id. No masks needed.
+    "aitoolsunsupported": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsunsupported/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsunsupported-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aitoolsalt: LLM proposes logs.filter.apply_sql with alt-key {"sql": "SeverityText = 'ERROR'"}
+    # (instead of the canonical sql_where key) -> lines 4471-4494 (alt-key loop) extract the value.
+    # SSE fixture 1c2abc8d… carries that alt-key payload. Guard a7f8… is SAFE.
+    "aitoolsalt": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsalt/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsalt-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aitoolscrosspage: LLM proposes ai.view.flat from page=/logs but that action lives on /ai ->
+    # line 4422-4424 (cross-page manifest lookup) finds it. SSE fixture a9f5f3f1… carries target_page
+    # =/ai. The action is confirmed (requires_confirmation=True for cross-page), so the turn ends with
+    # a single proposal and no looping. Guard fixture 23ebd651… is SAFE.
+    "aitoolscrosspage": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolscrosspage/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolscrosspage-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiformfilters: LLM proposes ai.filter.apply from page=/ai with valid filters {view, service} ->
+    # lines 4445-4469 (apply_form_filters allowlist). Both keys are in the allowlist -> proposal built
+    # normally. SSE fixture fa2f5c68… carries those filter args. Guard 3b3bfab5… is SAFE.
+    "aiformfilters": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiformfilters/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiformfilters-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiformfiltersblock: LLM proposes ai.filter.apply with {"unknown_filter": "val"} -> line 4460
+    # (unknown key not in allowlist) -> the filter is stripped -> args become empty -> proposal not
+    # built. SSE fixture 10865084… carries that disallowed key. Guard 609cd1c6… is SAFE.
+    "aiformfiltersblock": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiformfiltersblock/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiformfiltersblock-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aitoolsdefault: LLM proposes ai.view.flat from page=/ai with empty args {} -> lines 4502-4504
+    # (template default args merged in: the manifest's data-ai-action-args are used as defaults).
+    # SSE fixture a291412b… carries empty args. Guard d0302589… is SAFE.
+    "aitoolsdefault": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsdefault/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsdefault-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # ---- _parse_oss_safeguard_reply coverage (app.py 5042-5092) --------------------------------
+    # aiguardossempty: gpt-oss-safeguard guard returns content="" -> _parse_oss_safeguard_reply("")
+    # -> line 5048 (empty strip) -> ("", "") -> reply="" -> line 5192 guard_unavailable.
+    # Guard fixture cc892dac… returns empty content. QUERY_PAGE_ENABLED so the guard call happens.
+    "aiguardossempty": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossempty/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossempty-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardossbool: gpt-oss-safeguard guard returns {"violation": true, "policy_category": "S3"}
+    # -> line 5069-5070 (bool violation -> UNSAFE) + line 5082-5083 (policy_category as category).
+    # S3 (Sex-Related Crimes) has a label and is NOT noisy -> line 5226 "blocked (S3: Sex-Related
+    # Crimes)". Guard fixture 4e2da042….
+    "aiguardossbool": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossbool/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossbool-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardossstr: gpt-oss-safeguard guard returns {"violation": "unsafe", "policy_category": "S5"}
+    # -> line 5073-5076 (str violation "unsafe" -> UNSAFE). S5 (Defamation) has a label, NOT noisy
+    # -> line 5226 "blocked (S5: Defamation)". Guard fixture 83cfc132….
+    "aiguardossstr": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstr/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstr-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardossstrafe: gpt-oss-safeguard guard returns {"violation": "safe"} -> line 5077-5078
+    # (str violation "safe" -> SAFE) -> allowed=True -> main SQL-gen endpoint called. Guard fixture
+    # c5a49d4a…; main fixture 39749feb… (SELECT count() AS cnt FROM otel_logs). execute=false so
+    # no chdb run; the SQL is returned verbatim. trace_id/turn_id time-based -> masked.
+    "aiguardossstrafe": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstrafe/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstrafe-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardruleids: gpt-oss-safeguard guard returns {"violation": 1, "policy_category": null,
+    # "rule_ids": ["S11"]} -> line 5069 (int/float truthy -> UNSAFE) + line 5065 (parsed_obj not None)
+    # + line 5084-5087 (rule_ids[0]="S11" used as category). S11 (Suicide & Self-Harm) has a label,
+    # not noisy -> line 5226 "blocked (S11: Suicide & Self-Harm)". Guard fixture 6aa70e86….
+    "aiguardruleids": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardruleids/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardruleids-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardembedjson: gpt-oss-safeguard guard returns plain text with embedded JSON
+    # "Guard analysis: {\"violation\": 1, \"policy_category\": \"S3\"}" -> line 5052-5060 (regex
+    # extracts the embedded JSON object) -> parsed normally -> UNSAFE + S3 -> "blocked (S3: ...)".
+    # Guard fixture dd76c0b9….
+    "aiguardembedjson": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardembedjson/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardembedjson-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # ---- _check_guard_model coverage (app.py 5136-5233) ---------------------------------------
+    # aiheuristic: question contains "jailbreak" (in _AI_GUARD_BLOCK_KEYWORDS) -> _heuristic_guard_
+    # check returns False -> line 5143 returns (False, "Blocked by heuristic safety check", {}).
+    # Guard LLM is never called. Guard URL set but never dialed; no guard fixture needed. The
+    # returned 403 {"error": "... Blocked by heuristic safety check"} is byte-compared.
+    "aiheuristic": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiheuristic/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiheuristic-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # ainoguard: no SOBS_AI_GUARD_ENDPOINT_URL and no SOBS_AI_GUARD_MODEL -> guard_url="" and
+    # guard_model="" -> line 5149-5150 returns (False, "guard_not_configured", {}). The 403 error
+    # "Request blocked by safety guard: guard_not_configured" is byte-compared. No guard fixture.
+    # Distinct main endpoint so the URL-keyed fixture does not collide with other profiles.
+    "ainoguard": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ainoguard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardbenigno: gpt-oss-safeguard guard returns S1 (Violent Crimes, NOISY) -> line 5208-5213:
+    # question "show me error logs" has "error" + "logs" (2 benign_obs keywords, no HIGH_RISK) ->
+    # benign_observability=True -> override -> allowed=True. Main SQL-gen called. Guard 94604b66…;
+    # main c653417a…. trace_id/turn_id time-based -> masked. execute=false.
+    "aiguardbenigno": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigno/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigno-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardbenignav: gpt-oss-safeguard guard returns S2 (Non-Violent Crimes, NOISY) -> line 5214-
+    # 5219: question "navigate to the metrics view" has "navigate" (navigation_intent) + "view"
+    # (navigation_surface) -> benign_navigation=True; "metrics" gives only 1 obs hit (<2) so
+    # benign_observability=False -> benign_navigation branch fires -> allowed=True. Guard 4af0ba72…;
+    # main 8d2a25e9…. trace_id/turn_id time-based -> masked. execute=false.
+    "aiguardbenignav": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenignav/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenignav-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardbenigns8: gpt-oss-safeguard guard returns S8 (Intellectual Property, NOISY) -> line
+    # 5220-5225: question "show me llm token usage" has "show" (usage_intent) + "token" (usage_
+    # analytics) -> benign_ai_usage=True -> S8-specific override -> allowed=True. Guard 073ba76e…;
+    # main c35481d7…. trace_id/turn_id time-based -> masked. execute=false.
+    "aiguardbenigns8": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigns8/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigns8-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardinvalidcat: gpt-oss-safeguard guard returns {"violation": 1, "policy_category": "S15"}
+    # -> UNSAFE + S15 (not in _AI_GUARD_CATEGORIES -> label="") -> line 5228-5230 (category but no
+    # label, OSS model) -> "blocked (policy_category=S15)". Guard 53673bbb….
+    "aiguardinvalidcat": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardinvalidcat/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardinvalidcat-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardllama20: llama-guard-20b (non-OSS llama model) returns "unsafe\nS20" -> _parse_guard_
+    # reply (llama parser) -> UNSAFE + S20 (not in _AI_GUARD_CATEGORIES -> label="") -> line 5231
+    # (category but no label, NON-OSS model) -> "blocked (S20)". Guard 769453d9….
+    "aiguardllama20": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama20/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama20-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "llama-guard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardnocat: gpt-oss-safeguard guard returns {"violation": true} (no policy_category, no
+    # rule_ids) -> bool UNSAFE + category="" -> line 5232 "blocked". Guard f554ccc2….
+    "aiguardnocat": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardnocat/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardnocat-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aiguardplaintext: gpt-oss-safeguard guard returns plain text with no JSON -> _parse_oss_
+    # safeguard_reply fails to extract any verdict (no "{" in text after strip) -> ("", "") ->
+    # verdict="" -> line 5233 "guard_invalid_reply: <text[:120]>". Guard 440f1fb3….
+    "aiguardplaintext": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardplaintext/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardplaintext-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
