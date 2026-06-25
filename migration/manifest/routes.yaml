@@ -3231,6 +3231,23 @@ routes:
     json:
       chart_spec: '{"series":[{"type":"line"}]}'
       instruction: Make it a bar chart
+# refinerepair profile: refine-chart REPAIR path. The mock (distinct endpoint) returns "not valid
+# json" for both the refine call and the repair call. _parse_chart_spec_json fails ->
+# _repair_chart_spec_json_with_llm called -> repair mock also returns "not valid json" -> compound
+# error. Exercises app.py _vanna_refine_chart_spec lines 30072-30080 (repair failure path).
+- id: post__api_query_refine_chart__repair
+  path: /api/query/refine-chart
+  methods:
+  - POST
+  profile: refinerepair
+  mask:
+  - '"trace_id":"[^"]*"'
+  mask_reason: trace_id is a fresh uuid4 (frozen-counter Python vs random Go)
+  request:
+    method: POST
+    json:
+      chart_spec: '{"series":[{"type":"line"}]}'
+      instruction: Make it a bar chart
 - id: post__api_query_add_to_dashboard
   path: /api/query/add-to-dashboard
   methods:
@@ -4576,6 +4593,20 @@ routes:
   methods:
   - POST
   profile: aibuild
+  request:
+    method: POST
+    json:
+      question: Show request volume over time
+# aibuildspec profile: AI configured (mock). SQL call returns "SELECT 1 AS x" (URL-keyed fallback);
+# named-queries mock returns "SELECT 1 AS x" (not valid JSON -> empty list); chart spec call uses
+# a body-keyed fixture returning valid ECharts JSON with {{labels}} + {{values}} placeholders.
+# Exercises _vanna_generate_chart_spec success path (app.py 29867-29870) and
+# _infer_custom_mapping_from_option (29900-29927). URL-keyed fallback: 20fd0c0d.
+- id: post__api_dashboards_spec_ai_build__chartspec
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuildspec
   request:
     method: POST
     json:

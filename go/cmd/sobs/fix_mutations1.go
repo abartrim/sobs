@@ -139,8 +139,9 @@ func (s *server) vannaRefineChartSpecTL(endpoint, model, currentSpec, instructio
 	if len(rows) > 20 {
 		rows = rows[:20]
 	}
-	sampleOpts := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
-	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), sampleOpts))
+	// app.py: json.dumps({"columns": columns, "rows": sample_rows[:20]}, ensure_ascii=False, default=str)
+	// — default (spaced) separators ", " / ": ", NOT compact.
+	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), jsonDumpsDefault))
 	userMsg := "Current ECharts spec structure:\n" + currentSpec +
 		"\n\nData available (columns + up to 20 sample rows):\n" + sampleStr +
 		"\n\nUser instruction: " + instruction +
@@ -149,21 +150,48 @@ func (s *server) vannaRefineChartSpecTL(endpoint, model, currentSpec, instructio
 		jsonenc.NewObject().Set("role", "system").Set("content", s.buildChartRefinementPrompt()),
 		jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
 	}
-	content, _, err := s.callLLMChat(llmRequest{
+	baseReq := llmRequest{
 		endpoint:      endpoint,
 		model:         model,
 		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
 		thinkingLevel: thinkingLevel,
+		maxTokens:     queryLLMMaxTokens, // app.py _vanna_refine_chart_spec: max_tokens=_QUERY_LLM_MAX_TOKENS (8192)
 		messages:      messages,
-	})
+	}
+	content, _, err := s.callLLMChat(baseReq)
 	if err != nil || content == "" {
 		return "", "LLM did not return a refined chart spec."
 	}
-	parsed, perr := parseChartSpecJSON(content)
+	parsed, _ := parseChartSpecJSON(content)
 	if parsed != nil {
 		return string(jsonenc.Encode(parsed, dumpsDefault)), ""
 	}
-	return "", "Refined chart spec JSON parse error: " + perr
+	// app.py _vanna_refine_chart_spec: on parse failure call _repair_chart_spec_json_with_llm.
+	// parseErr must match CPython JSONDecodeError format for the error message to be byte-identical.
+	parseErr := chartSpecParseError(content)
+	repairReq := baseReq
+	repairReq.thinkingLevel = "off"
+	repairReq.messages = []any{
+		jsonenc.NewObject().Set("role", "system").Set("content", chartJSONRepairSystemPrompt),
+		jsonenc.NewObject().Set("role", "user").Set("content",
+			"The chart JSON below failed to parse. Repair it and return only valid JSON.\n\n"+
+				"Parse error: "+parseErr+"\n\n"+
+				"Malformed chart JSON:\n"+content),
+	}
+	repaired, _, rerr := s.callLLMChat(repairReq)
+	if rerr != nil || strings.TrimSpace(repaired) == "" {
+		// app.py repair returns None + "LLM JSON repair returned empty content." ->
+		// _vanna_refine_chart_spec: "Refined chart spec JSON parse error: {parse_err}."
+		// (no repair_error suffix since repaired_raw is falsy -> repair_error from stats,
+		// which is empty on a normal empty-content return).
+		return "", "Refined chart spec JSON parse error: " + parseErr + ". LLM JSON repair returned empty content."
+	}
+	rparsed, _ := parseChartSpecJSON(repaired)
+	if rparsed == nil {
+		repairErr := "LLM JSON repair output was still invalid: " + chartSpecParseError(repaired)
+		return "", "Refined chart spec JSON parse error: " + parseErr + ". " + repairErr
+	}
+	return string(jsonenc.Encode(rparsed, dumpsDefault)), ""
 }
 
 // ---------------------------------------------------------------------------

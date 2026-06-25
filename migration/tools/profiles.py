@@ -568,6 +568,17 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # refinerepair: query/refine-chart REPAIR path — the canned mock (distinct endpoint so its URL
+    # key is unique) returns "not valid json" for BOTH the refine call and the repair call.
+    # _parse_chart_spec_json fails -> _repair_chart_spec_json_with_llm is called -> repair mock also
+    # returns "not valid json" -> parse fails again -> returns a compound error message. Exercises
+    # app.py _vanna_refine_chart_spec lines 30072-30080. URL key: ec583354cd26fab1bd57381ba51fe9be.
+    "refinerepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/refinerepair/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # agenttrigger: trigger_agent_run runs the full agent flow (guard + analyze LLM call) for a
     # seeded analyze-only rule. Guard + analyze endpoints on DISTINCT mock paths (two canned
     # responses); the runs it inserts are isolated so the agent-runs list test stays stable.
@@ -697,6 +708,18 @@ PROFILES: dict[str, dict[str, str]] = {
     # -> RED. Keys: 19f939a2(SQL) 2108ee30(named) e733443a(chart) 9283972d(repair).
     "aibuild": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuild/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aibuildspec: dashboards/spec/ai-build CHART-SPEC SUCCESS path. SQL call returns "SELECT 1 AS x"
+    # (URL-keyed fallback 20fd0c0d), named-queries also returns "SELECT 1 AS x" (URL-keyed) which is
+    # not valid JSON so named_queries=[]. Chart spec call uses a BODY-KEYED fixture returning valid
+    # ECharts JSON with {{labels}} and {{values}} placeholders -> _vanna_generate_chart_spec success
+    # path (app.py 29867-29870) + _infer_custom_mapping_from_option (29900-29927). Body-keyed chart
+    # fixture computed after Docker bodydump capture. URL-keyed fallback: 20fd0c0d5719059a4d312b1fa9335abd.
+    "aibuildspec": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildspec/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
