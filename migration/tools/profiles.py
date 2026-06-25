@@ -940,6 +940,42 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_BASIC_AUTH_PASSWORD": "secret",
         "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauth",
     },
+    # llmguarderr: query/ask GUARD-UNAVAILABLE path via HTTP 500 from the guard endpoint.
+    # _call_llm_endpoint (app.py 4742-4770) raises HTTPStatusError when the mock returns HTTP 500;
+    # the except branch catches it -> error_text="HTTP 500: Internal Server Error" -> returns ("", stats).
+    # _check_guard_model (5182-5192): reply="" -> tries parser(guard_stats.error) -> verdict="" ->
+    # returns (False, "guard_unavailable", guard_stats). api_query_ask returns 403
+    # {"ok": false, "error": "Request blocked by safety guard: guard_unavailable"}.
+    # URL-keyed fixture a161c58d… (POST http://sobs-ai.mock/llmguarderr-guard/v1/chat/completions):
+    # {"status": 500, "content": "Internal Server Error"} -> raise_for_status() -> HTTPStatusError.
+    # Guard model is the default sobs-guard-model (llama path) so no body-key needed; DISTINCT guard
+    # endpoint ensures no collision with other profiles' fixtures.
+    "llmguarderr": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/llmguarderr/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/llmguarderr-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # llmguardempty: query/ask GUARD-UNAVAILABLE path via empty-content retry exhaustion.
+    # _call_llm_endpoint (app.py 4671-4741): the mock returns HTTP 200 with content=null on BOTH
+    # the initial call and the retry call (same URL-keyed fixture), so both reply_text.strip() checks
+    # fail -> builds retry messages -> fires again -> still empty -> builds error_stats with
+    # retry_max_tokens/initial_max_tokens/error keys -> returns ("", retry_stats_out).
+    # _check_guard_model: reply="" -> tries parser(guard_stats.error) -> verdict="" ->
+    # returns (False, "guard_unavailable", guard_stats). Same 403 route response as llmguarderr.
+    # URL-keyed fixture 38925adb… (POST http://sobs-ai.mock/llmguardempty-guard/v1/chat/completions):
+    # {"status": 200, "json": {"choices": [{"message": {"content": null}, "finish_reason": "stop"}],
+    # "usage": {"prompt_tokens": 5, "completion_tokens": 1}}} — same fixture for initial + retry call.
+    "llmguardempty": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/llmguardempty/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/llmguardempty-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via

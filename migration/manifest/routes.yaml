@@ -3049,6 +3049,48 @@ routes:
   - '"trace_id": ?"[0-9a-f]{32}"'
   - '"turn_id": ?"[0-9a-f]{16}"'
   mask_reason: 'see post__api_query_ask__guardblock; same time-based trace_id/turn_id masks. The byte-compared `error` ("blocked (S9: Indiscriminate Weapons)") proves the llama prompt-builder + _parse_guard_reply path ran identically.'
+# GUARD-UNAVAILABLE via HTTP 500 exception. The llmguarderr profile points the guard at a mock that
+# returns HTTP 500; _call_llm_endpoint (app.py 4742-4770) catches the HTTPStatusError and returns
+# ("", {"elapsed_ms": 0, "error": "HTTP 500: Internal Server Error"}). _check_guard_model (5182-5192)
+# sees reply="" -> tries parser(guard_stats.error) -> verdict="" -> (False, "guard_unavailable",
+# guard_stats). api_query_ask returns 403 with "Request blocked by safety guard: guard_unavailable".
+# This drives the _call_llm_endpoint HTTPStatusError arm (lines 4742-4770) via the guard call path.
+# trace_id/turn_id are time-based (md5("query|question|time_ns"), [:16]) -> masked.
+- id: post__api_query_ask__llmguarderr
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: llmguarderr
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: 'trace_id/turn_id are time-based (same as guardblock). The `error` field ("Request blocked by safety guard: guard_unavailable") is byte-compared, proving the HTTPStatusError arm of _call_llm_endpoint ran on both sides and _check_guard_model fell through to guard_unavailable.'
+# GUARD-UNAVAILABLE via empty-content retry exhaustion. The llmguardempty profile points the guard at a
+# mock that returns HTTP 200 with content=null. _call_llm_endpoint (4671-4741): reply_text="" -> enters
+# the retry path; the URL-keyed mock returns the SAME empty-content fixture for the retry call -> still
+# empty -> builds retry_stats_out with retry_max_tokens/initial_max_tokens/error keys -> returns ("",
+# retry_stats_out). _check_guard_model: reply="" -> parser(error text) -> verdict="" ->
+# (False, "guard_unavailable", ...). Same 403 "guard_unavailable" response as llmguarderr.
+# This drives the empty-content retry arm of _call_llm_endpoint (lines 4671-4741).
+- id: post__api_query_ask__llmguardempty
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: llmguardempty
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: false
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: 'trace_id/turn_id are time-based (same as guardblock). The `error` field ("Request blocked by safety guard: guard_unavailable") is byte-compared, proving the empty-content retry arm of _call_llm_endpoint ran and _check_guard_model fell through to guard_unavailable.'
 # M39: Vanna SQL REPAIR-TO-FAILURE loop. The vannarepair profile's guard returns SAFE -> ALLOW, so the
 # flow runs _vanna_generate_sql. The body-ignored URL-keyed mock returns the SAME canned INVALID SQL
 # ("SELECT nonexistent_column_xyz FROM otel_logs") for the generate call AND every repair call. That SQL
