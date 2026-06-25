@@ -5224,6 +5224,35 @@ def seed_rumasset(db) -> None:
     (asset_dir / f"{RUM_ASSET_ID}.meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
+def seed_aihelpermemcons(db) -> None:
+    # One prior sobs_ai_memories row for chat-parity-cons01 whose text is semantically similar to
+    # the new candidate ("User prefers error logs grouped by service") produced by the aihelpermemcons
+    # SSE fixture. Cosine similarity = 0.8571 > AI_MEMORY_CONSOLIDATION_SCORE (0.72), so
+    # _semantic_memory_matches returns it as a related item. The consolidation LLM call then receives
+    # a non-empty `related` list (covering lines 3851-3854) and — via the body-keyed fixture — gets
+    # a valid JSON response {"action": "merge", ...} (covering lines 3883-3900). EmbeddingJson is
+    # empty so both Python and Go recompute the embedding deterministically from MemoryText. Version
+    # is 1ms below the parity clock (1704164645000) so the drop-update row (Version=1704164645000)
+    # wins the ReplacingMergeTree FINAL — the seed is effectively replaced when the turn runs.
+    _insert(
+        db,
+        "sobs_ai_memories",
+        [
+            {
+                "Id": "mem-prior-cons-01",
+                "ChatId": "chat-parity-cons01",
+                "MemoryText": "User wants error logs grouped by service",
+                "EmbeddingJson": "",
+                "SourceTurnId": "turn-prior-cons-01",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "UpdatedAt": "2024-01-02 02:59:59.000",
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_memories FINAL")
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -5304,6 +5333,7 @@ PROFILE_SEEDS = {
     "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
     "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
     "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup
+    "aihelpermemcons": seed_aihelpermemcons,  # prior memory -> non-empty related -> consolidation merge
 }
 
 

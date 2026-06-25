@@ -797,6 +797,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aihelpermemcons: like `aihelpermem`, but seeds a prior sobs_ai_memories row for the same
+    # chat so _semantic_memory_matches returns a non-empty `related` list (covering the
+    # _consolidate_memory_candidates loop body, lines 3851-3854). A body-keyed fixture for the
+    # consolidation POST (key f3bbd675…) returns valid JSON {"action": "merge", "memory": "...",
+    # "drop_ids": ["mem-prior-cons-01"]}, driving the successful-parse path (lines 3883-3900).
+    # The outer turn behaviour is identical to aihelpermem (same SSE fixture URL-keyed at
+    # 7cb42069…); saved_memory_ids is masked as always.
+    "aihelpermemcons": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aitools: like `aihelper`, but the canned MAIN /chat/completions SSE emits a `tool_calls`
     # delta (function propose_ui_action) carrying a logs.filter.apply_sql action_id that EXISTS in
     # the /logs page action manifest. This drives the previously-dark tool branch of the (non-
@@ -1391,6 +1405,7 @@ SEEDED_PROFILES = {
     "enrichlibs",
     "rumasset",
     "webtraffic",
+    "aihelpermemcons",
 }
 
 

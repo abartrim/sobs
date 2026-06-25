@@ -4480,6 +4480,32 @@ routes:
   mask:
   - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
   mask_reason: saved_memory_ids holds exactly one freshly minted memory uuid (frozen-counter Python vs random Go). The mask requires a uuid to be present, so a Go-side empty array would NOT match and the turn would diff RED — i.e. GREEN proves both sides actually wrote a memory. The rest of the turn is byte-compared.
+# Consolidation-success path under the aihelpermemcons profile: a seeded prior sobs_ai_memories
+# row (text "User wants error logs grouped by service", cosine-score 0.8571 with the new candidate)
+# makes _semantic_memory_matches return a non-empty related list so _consolidate_memory_candidates
+# enters its loop body (lines 3851-3854). The body-keyed fixture for the consolidation POST
+# (key f3bbd675…) returns valid JSON {"action":"merge","memory":"...","drop_ids":["mem-prior-cons-01"]}
+# driving the full successful-parse path (lines 3883-3900: json.loads, action extraction,
+# memory_text coercion, drop_ids loop). The outer turn (SSE 7cb42069… URL-keyed) is identical to
+# aihelpermem; saved_memory_ids masked as always.
+- id: post__api_ai_helper_memory__cons
+  path: /api/ai/helper
+  profile: aihelpermemcons
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Remember that I prefer error logs grouped by service.
+      page: /logs
+      chat_id: chat-parity-cons01
+      turn_id: turn-parity-cons01
+  mask:
+  - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
+  mask_reason: >
+    saved_memory_ids holds exactly one freshly minted memory uuid (masked as in aihelpermem).
+    The merge action writes the consolidated memory after soft-deleting the prior row; GREEN
+    proves both sides executed the full consolidation-success path (lines 3883-3900).
 # Tool-call path under the aitools profile: the canned MAIN SSE emits a `tool_calls` delta
 # (function propose_ui_action) carrying action_id logs.filter.apply_sql, which EXISTS in the /logs
 # action manifest. This drives the previously-dark tool branch of the (non-streaming) ai_helper
