@@ -144,6 +144,29 @@ def seed_rum_sessions(db) -> None:
     _insert(db, "hyperdx_sessions", rows)
 
 
+def seed_webtraffic(db) -> None:
+    # Geo aggregation fixture: hyperdx_sessions rows carrying client.ip. The base seed_rum_sessions
+    # rows have none, so the geo query's `HAVING ip != ''` excludes them -> the country totals are
+    # determined ONLY by these rows. IPs are drawn from the geoip parity corpus
+    # (go/cmd/sobs/testdata/geo_parity_corpus.json) so _get_geo_db + _geo_lookup_batch resolve
+    # deterministic countries (8.8.8.8/9.9.9.9 -> US, 1.1.1.1 -> AU), exercising the local
+    # geoip2fast lookup path that no other corpus case reaches. Tie-free per-ip counts (4/2/1) keep
+    # the COUNT(*) ORDER BY DESC stable across capture/replay.
+    rows = []
+    for ip, n in (("8.8.8.8", 4), ("1.1.1.1", 2), ("9.9.9.9", 1)):
+        for _ in range(n):
+            rows.append(
+                {
+                    "Timestamp": _TS,
+                    "ServiceName": "web",
+                    "Body": "pageview",
+                    "EventName": "pageview",
+                    "LogAttributes": {"client.ip": ip, "url": "https://app.example.com/checkout"},
+                }
+            )
+    _insert(db, "hyperdx_sessions", rows)
+
+
 # App-registry fixtures (the example seeder leaves sobs_apps/releases/artifacts empty). These
 # drive the /v1 registry serialize + found paths. Deterministic ids/timestamps so goldens
 # reproduce. DateTime64(3) columns are pre-normalized ("YYYY-MM-DD HH:MM:SS.ffffff").
@@ -924,6 +947,63 @@ def seed_depsrich(db) -> None:
                 "AppId": "f1000000000000000000000000000001",
                 "ReleaseVersion": "1.0.0",
                 "CommitSha": "deadbeefcafe",
+                "BuildId": "",
+                "Environment": "prod",
+                "ReleasedAt": _TS,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [{"Key": "ai.github_token", "Value": "ghp_parity_token", "IsDeleted": 0, "Version": 1704164644000}],
+    )
+    db.execute("OPTIMIZE TABLE sobs_apps FINAL")
+    db.execute("OPTIMIZE TABLE sobs_app_releases FINAL")
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+
+
+def seed_cveactions(db) -> None:
+    # Like seed_depsrich but uses CommitSha=aabbccdd1122 so the actions/runs URL key is distinct
+    # from depsrich's deadbeefcafe. The canned upstream fixtures for this commit drive the FULL
+    # github-actions snapshot path:
+    #   - actions/runs?head_sha=aabbccdd1122   -> run 7001 (conclusion=success)
+    #   - actions/runs/7001/artifacts          -> sobs-release-dependency-snapshots artifact (id 8001)
+    #   - actions/artifacts/8001/zip           -> bytes_b64 zip with pip-freeze-linux-x86_64.txt
+    #                                             content: requests==2.28.0 + flask==2.3.0
+    # Result: 1 dependencies-lockfile artifact inserted (2 deps), 2 libs -> OSV scan -> 2 vulns_found.
+    _insert(
+        db,
+        "sobs_apps",
+        [
+            {
+                "Id": "f1000000000000000000000000000002",
+                "Name": "Widget Service",
+                "Slug": "widget-service",
+                "OwnerTeam": "platform",
+                "RepoUrl": "https://github.com/acme/widget",
+                "DefaultEnvironment": "prod",
+                "Enabled": 1,
+                "MetadataJson": "{}",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+                "CreatedAt": _TS,
+                "UpdatedAt": _TS,
+            }
+        ],
+    )
+    _insert(
+        db,
+        "sobs_app_releases",
+        [
+            {
+                "Id": "f2000000000000000000000000000002",
+                "AppId": "f1000000000000000000000000000002",
+                "ReleaseVersion": "1.0.0",
+                "CommitSha": "aabbccdd1122",
                 "BuildId": "",
                 "Environment": "prod",
                 "ReleasedAt": _TS,
@@ -2245,6 +2325,134 @@ def seed_notif_agent_miss(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_tag_rules FINAL")
     db.execute("OPTIMIZE TABLE sobs_record_tags FINAL")
     db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+
+def seed_anomalycheck(db) -> None:
+    # Cover _collect_anomaly_agent_events (app.py 25351-25395): the loop body (25363-25394) that
+    # builds events_by_rule from annotated anomaly rows.  The notifagentmiss profile has "B Anomaly
+    # Ref" pointing at a nonexistent rule id so the view returns nothing; THIS profile seeds REAL
+    # anomaly data so the view does return a row.
+    #
+    # Seeding strategy
+    # ----------------
+    # Service "anomaly-prod", signal "log_volume".  We insert:
+    #   - 59 baseline 1-log rows spread across 59 distinct now()-anchored minute buckets (now()-61m
+    #     to now()-3m), one log per bucket.  The v_derived_signals_1m view aggregates by
+    #     toStartOfMinute(Timestamp), giving 59 buckets each with value=1.
+    #   - 100 spike logs in the now()-1m bucket, giving value=100 in the latest bucket.
+    #
+    # At the latest bucket the 60-row window (59 PRECEDING + CURRENT) contains:
+    #   values = [1]*59 + [100]   mean = (59+100)/60 = 2.65
+    #   stddev = sqrt(avg(v^2) - mean^2) = sqrt((59+10000)/60 - 2.65^2) ~= 12.674
+    #   |100 - 2.65| = 97.35 > 3 * 12.674 = 38.02  ->  anomaly_state = 'outlier'
+    #
+    # A sobs_anomaly_rules threshold rule for (logs, log_volume, anomaly-prod) fires at value=100
+    # (CriticalThreshold=20 < 100): _combine_rule_states('outlier', 'outlier') = 'outlier'.
+    # normalizeAgentTriggerState('outlier') = 'critical'; severity_rank['critical']=2 -> event added.
+    #
+    # An agent rule (TriggerType="anomaly_rule", TriggerRefId="anomrule-0000000001",
+    # TriggerState="any") matches the event (state "critical" matches "any").
+    #
+    # A seeded sobs_agent_runs row with CreatedAt="2024-01-02 03:04:04" (1 s before
+    # FIXED_EPOCH=1704164645) makes elapsed_minutes=round(1/60,2)=0.02 deterministically.
+    # 0.02 < 60 (rate_limit_minutes) -> skipped_rate_limited -> NO uuid/now() in response body.
+    #
+    # Expected response (no masks needed):
+    #   {"ok":true,"evaluated":0,"fired":0,"results":[],
+    #    "agent_runs":[{"rule_id":"agentrule-000000000001","status":"skipped_rate_limited",
+    #                   "elapsed_minutes":0.02}]}
+
+    # 59 one-log baseline minute buckets from now()-61m to now()-3m (value=1 each).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL (number + 3) MINUTE, 'anomaly-prod', 'baseline' "
+        "FROM numbers(59)"
+    )
+    # 100-log spike in now()-1m bucket (value=100 in the latest minute).
+    db.execute(
+        "INSERT INTO otel_logs (Timestamp, ServiceName, Body) "
+        "SELECT now() - INTERVAL 1 MINUTE, 'anomaly-prod', 'spike' "
+        "FROM numbers(100)"
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+    _insert(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": "anomrule-0000000001",
+                "Name": "Anomalycheck log_volume threshold",
+                "RuleType": "threshold",
+                "SignalSource": "logs",
+                "SignalName": "log_volume",
+                "ServiceName": "anomaly-prod",
+                "AttrFingerprint": "",
+                "Comparator": "gt",
+                "WarningThreshold": 5.0,
+                "CriticalThreshold": 20.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+    _insert(
+        db,
+        "sobs_agent_rules",
+        [
+            {
+                "Id": "agentrule-000000000001",
+                "Name": "Anomaly Prod Watch",
+                "Description": "Auto-triggered by anomaly-prod log_volume outlier.",
+                "TriggerType": "anomaly_rule",
+                "TriggerRefId": "anomrule-0000000001",
+                "TriggerState": "any",
+                "Actions": "analyze",
+                "RateLimitMinutes": 60,
+                "IsEnabled": 1,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_rules FINAL")
+
+    # Seeded prior run 1 second before FIXED_EPOCH -> elapsed_minutes=round(1/60,2)=0.02.
+    # 0.02 < rate_limit=60 -> skipped_rate_limited; no uuid/now() in response (deterministic).
+    _insert(
+        db,
+        "sobs_agent_runs",
+        [
+            {
+                "Id": "anomrun-0000000000000000001",
+                "RuleId": "agentrule-000000000001",
+                "RuleName": "Anomaly Prod Watch",
+                "TriggerContext": "",
+                "Status": "completed",
+                "GuardDecision": "allow",
+                "DlpResult": "",
+                "Analysis": "",
+                "Suggestion": "",
+                "GithubIssueUrl": "",
+                "ErrorMessage": "",
+                "CreatedAt": "2024-01-02 03:04:04.000000",
+                "CompletedAt": "2024-01-02 03:04:04.000000",
+                "IsDismissed": 0,
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_agent_runs FINAL")
 
 
 def seed_notif(db) -> None:
@@ -4648,6 +4856,7 @@ PROFILE_SEEDS = {
     "dmprune": seed_dm_prune,  # retention-eligible rows -> prune's DELETE window runs on real data
     "notifagent": seed_notif_agent,  # tag rule + auto tags + agent rule -> check_notifications auto-triggers the flow
     "notifagentmiss": seed_notif_agent_miss,  # tag infra + continue-only agent rules -> agent_runs stays []
+    "anomalycheck": seed_anomalycheck,  # anomaly-prod log spike -> outlier event -> rate-limited agent_runs entry
     "notifeval": seed_notifeval,  # rules w/ REAL conditions+matching tags -> eval fire/no-fire/cooldown/disabled arms
     "dmbackup": seed_dm_backup,
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
@@ -4668,6 +4877,7 @@ PROFILE_SEEDS = {
     "tagsuggest": seed_tagsuggest,  # otel/tags/attr-key rows -> condition-suggestions non-empty branches
     "cvebackfill": seed_repo_app,  # app+release+github token -> cve github backfill attempts a release
     "depsrich": seed_depsrich,  # app+release(+commit)+token -> cve backfill walks the full deps-parse chain
+    "cveactions": seed_cveactions,  # like depsrich but actions artifacts HAS snapshot -> zip download -> 2 libs
     "lockfiles": seed_lockfiles,  # M30: 4 apps/releases -> cve backfill hits all 4 lockfile parsers
     "onboard": seed_repo_app,  # app+token -> onboarding create-issues realtime + github-issue paths
     "onbupdate": seed_onbupdate,  # M37: app+token (distinct repo) -> onboarding create-issues UPDATE branch (PATCH)
@@ -4709,6 +4919,7 @@ PROFILE_SEEDS = {
     "enrichlibs": seed_enrichlibs,  # otel_traces sdk/scope rows + 1 CVE -> populated library inventory
     "rumasset": seed_rumasset,  # on-disk rum asset (meta.json + blob) -> rum_asset_download FOUND branch
     "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
+    "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup
 }
 
 

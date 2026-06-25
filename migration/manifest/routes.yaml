@@ -400,6 +400,18 @@ routes:
   - GET
   request:
     method: GET
+# Populated geo aggregation: the webtraffic profile seeds hyperdx_sessions rows with client.ip
+# values from the geoip parity corpus, so api_web_traffic_geo runs the local geoip2fast lookup
+# (_get_geo_db loads the bundled DB, _geo_lookup_batch resolves each IP) -> non-empty
+# country_counts/ip_details. The base seed's ip-less rows are excluded by `HAVING ip != ''`, so
+# the result is fully determined by the seeded rows (US=5, AU=2). No time args -> no now().
+- id: get__api_web_traffic_geo__populated
+  path: /api/web-traffic/geo
+  methods:
+  - GET
+  profile: webtraffic
+  request:
+    method: GET
 - id: get__api_dashboards_spec_options
   path: /api/dashboards/spec/options
   methods:
@@ -3070,6 +3082,41 @@ routes:
   - '"turn_id": ?"[0-9a-f]{16}"'
   - '"error": ?"Query execution error: .*?"'
   mask_reason: 'trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based -> masked (a 32/16-hex value must be present, so an absent id diffs RED). The `error` is masked from its stable "Query execution error: " prefix onward because the trailing text is the raw chdb exception string (UNKNOWN_IDENTIFIER for the missing column) surfaced via Python str(exc) vs Go err.Error() — the underlying libchdb message is identical but the per-runtime exception wrapper around it is not guaranteed byte-identical. Everything that proves the repair LOOP ran is still byte-compared: retry_count=3 (the loop drove all 3 bounded attempts via _vanna_repair_sql), datasets/columns/rows are empty (failure -> no main dataset), and llm_stats.sql_repair is NON-zero (the canned repair-call token usage threaded through last_repair_stats), which is exactly the value that distinguishes the repair-failure path from the success path.'
+# askrepair: _auto_repair_incomplete_cte_sql SUCCESS path. Guard (askrepair-guard/v1) returns SAFE ->
+# _vanna_generate_sql returns a TRUNCATED CTE (the LLM stopped mid-token):
+#   "WITH t AS (SELECT count() AS cnt FROM otel_logs WHERE ServiceName IN ('svc-1','svc-"
+# EXPLAIN fails (unbalanced parens/truncated IN literal). _auto_repair_incomplete_cte_sql fires:
+#   _repair_truncated_in_clause_literals: split on "," -> keep 'svc-1' (2 quotes, even), drop 'svc-
+#   (1 quote, odd) -> IN ('svc-1') ; then balance: openParens=2, closeParens=1 -> append ")" ;
+#   no ")\s*select" in result -> append "\nSELECT * FROM t". Repaired SQL passes EXPLAIN and executes
+#   (cnt=0 on the empty fixture). retry_count=1 (one successful auto-repair iteration) is
+#   byte-compared; datasets has the "main" entry (execution succeeded); llm_stats.sql_repair is
+#   zeroed (no LLM repair call was needed — the local fix succeeded). sql in the response is the
+#   REPAIRED form (not the original truncated string). Distinct mock endpoint (askrepair/v1, URL-keyed
+#   body-ignored fixture) so this does not clobber the `ask` profile's valid-SQL fixture.
+#   trace_id/turn_id are time-based -> masked.
+- id: post__api_query_ask__repair
+  path: /api/query/ask
+  methods:
+  - POST
+  profile: askrepair
+  request:
+    method: POST
+    json:
+      question: how many logs are there
+      execute: true
+  mask:
+  - '"trace_id": ?"[0-9a-f]{32}"'
+  - '"turn_id": ?"[0-9a-f]{16}"'
+  mask_reason: >-
+    trace_id = md5("query|{question}|{time_ns}") and turn_id = trace_id[:16] are time-based ->
+    masked (a 32/16-hex value must be present, so an absent id diffs RED). retry_count=1 is
+    byte-compared (proving _auto_repair_incomplete_cte_sql ran once and fixed the CTE). The
+    repaired SQL (WITH t AS ... SELECT * FROM t) is byte-compared in `sql`. datasets has one
+    "main" entry with columns=["cnt"] and rows=[[0]] (count of otel_logs rows with
+    ServiceName='svc-1', which is 0 on the empty fixture). llm_stats.sql_repair is all-zero
+    (no LLM repair call was made -- the local CTE-balancer succeeded), distinguishing this from
+    the vannarepair failure path (which has non-zero sql_repair stats).
 - id: post__api_query_run
   path: /api/query/run
   methods:
@@ -3626,6 +3673,30 @@ routes:
           mode: builder
         data:
           service: api
+# _format_drilldown_time string path (app.py 20757-20774) + _resolve_template_role_indices role_map
+# loop (app.py 20363-20381): both helpers are only exercised when the time column is a plain String
+# (not DateTime) AND visual.role_map has entries. Using a string literal '2024-01-01T00:00:00Z'
+# instead of toDateTime() keeps the result deterministic (no chDateTime masking applies). role_map
+# has two entries: "value"->"value" covers the exact col_index_by_name match path (20370-20372);
+# "p95"->"P95" covers the case-insensitive lower_name_to_index fallback (20374-20377). Both produce
+# the same index as the template default so the chart option is identical to the timeseries golden —
+# only coverage differs. Go resolveTemplateRoleIndices + formatDrilldownTime already handle these
+# paths correctly.
+- id: post__api_dashboards_spec_render_str_time_role_map
+  path: /api/dashboards/spec/render
+  methods: [POST]
+  request:
+    method: POST
+    json:
+      spec:
+        template_id: time_series_percentiles
+        sql:
+          mode: raw
+          override_sql: SELECT '2024-01-01T00:00:00Z' AS time, 2.0 AS value, 3.0 AS p95, 4.0 AS p99
+        visual:
+          role_map:
+            value: value
+            p95: P95
 # custom_echarts render path (M42): template_id=custom_echarts forces _render_custom_echarts.
 # Exercises the binding mini-language across every _resolve_custom_binding_expr branch (bare
 # "columns"/"rows"/"records" strings, a bare column-ref string, and dict {from: literal|column|
@@ -3930,6 +4001,20 @@ routes:
   methods:
   - POST
   profile: notifagentmiss
+  request:
+    method: POST
+    json: {}
+# anomalycheck profile: AI configured + an anomaly-prod log spike so v_derived_signals_anomaly
+# produces an 'outlier' row; a matching anomaly rule + agent rule make _collect_anomaly_agent_events
+# add an entry to events_by_rule (app.py 25363-25394 — the lines no prior profile covered). The
+# agent rule is rate-limited (seeded sobs_agent_runs row 1 s before FIXED_EPOCH), so no uuid/now()
+# appears in the response body -> byte-stable without masks. Covers 16 lines in
+# _collect_anomaly_agent_events (25363-25395) plus the rate-limit path (26404-26415).
+- id: post__api_notifications_check__anomalycheck
+  path: /api/notifications/check
+  methods:
+  - POST
+  profile: anomalycheck
   request:
     method: POST
     json: {}
@@ -5191,6 +5276,22 @@ routes:
     headers:
       Content-Type: application/x-protobuf
     body_b64: 'CksKFwoVCgxzZXJ2aWNlLm5hbWUSBQoDYXBpEjASLgoJY3B1LnVzYWdlKiEKHxkAMgEwt2imFzoLCgRjb3JlEgMKATAhAAAAAAAA4D8='
+# _proto_metrics_to_events sum + histogram branches (app.py 9302-9348): the gauge fixture above only
+# exercises the gauge branch. This fixture adds a Sum metric (requests.total, cumulative, monotonic,
+# asInt=100) and a Histogram metric (latency.ms, delta, count=5 sum=250.0 buckets=[1,2,1,1]
+# bounds=[10,50,200]) so both branches execute and the response is {"accepted": 2}.
+# Regenerate the body_b64 with:
+#   go test ./cmd/sobs -run TestGenerateOTLPProtoFixturesSumHist -v
+- id: post__v1_metrics__proto_sum_hist
+  path: /v1/metrics
+  methods:
+  - POST
+  profile: otlpingest
+  request:
+    method: POST
+    headers:
+      Content-Type: application/x-protobuf
+    body_b64: 'Cv8BChcKFQoMc2VydmljZS5uYW1lEgUKA3dlYhLjARJRCg5yZXF1ZXN0cy50b3RhbBITVG90YWwgcmVxdWVzdCBjb3VudBoBMTonCiEZADIBMLdophc6DQoDZW52EgYKBHByb2QxZAAAAAAAAAAQAhgBEo0BCgpsYXRlbmN5Lm1zEg9SZXF1ZXN0IGxhdGVuY3kaAm1zSmoKZhkAMgEwt2imFyEFAAAAAAAAACkAAAAAAEBvQDIgAQAAAAAAAAACAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAA6GAAAAAAAACRAAAAAAAAASUAAAAAAAABpQEoNCgNlbnYSBgoEcHJvZBAB'
 # OTLP Content-Encoding decompression: the OTel Collector's otlphttp exporter gzips by default, so
 # the server must inflate gzip/deflate request bodies before parsing (app.py _decompress_request_body
 # / Go decompressRequestBody). These compressed bodies decode to the same OTLP-JSON as the
@@ -5259,6 +5360,93 @@ routes:
   request:
     method: POST
     json: {}
+# ingest_rum_asset SUCCESS path via the rumassetupload profile (SOBS_RUM_ASSET_SIGNING_KEY set).
+# Body = b"sobs parity rum asset body\n" (27 bytes); HMAC-SHA256 of the canonical payload
+# (POST\n/v1/rum/assets\n1704164645\n<sha256-of-body>\ntext/plain\nasset\nparity-asset.txt)
+# with key "sobs-parity-rum-asset-signing-key" = 00f9f94d6479ea785cda83120275f98bc2ac504ae7122243d2bf483c871ef824.
+# Timestamp = FIXED_EPOCH (1704164645) so abs(now-ts)=0 <= window=300. Returns 201 with the new
+# asset id/url. The asset_id is uuid.uuid4().hex (frozen counter in Python, random in Go) and the
+# url embeds it — both fields are masked so only type/name/contentType/size are byte-compared.
+# Covers _verify_rum_asset_signature lines 7728-7744 + ingest_rum_asset lines 9723-9756.
+- id: post__v1_rum_assets__signed
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    query:
+      type: asset
+      name: parity-asset.txt
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1704164645"
+      X-SOBS-Asset-Signature: "00f9f94d6479ea785cda83120275f98bc2ac504ae7122243d2bf483c871ef824"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+  mask:
+  - '"id":"[a-f0-9]{32}"'
+  - '"/v1/rum/assets/[a-f0-9]{32}"'
+  mask_reason: >
+    asset_id = uuid.uuid4().hex (Python frozen counter; Go uses crypto/rand — not parity-frozen);
+    the url field embeds the same uuid. type/name/contentType/size are deterministic and byte-compared.
+# ingest_rum_asset: signing key set but request carries no X-SOBS-Asset-Timestamp or
+# X-SOBS-Asset-Signature headers -> _verify_rum_asset_signature returns (False,
+# "Missing asset signature headers") -> 401. Covers app.py 7718-7721.
+- id: post__v1_rum_assets__missing_sig_headers
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp header is non-numeric -> int(timestamp) raises
+# ValueError -> _verify_rum_asset_signature returns (False, "Invalid asset signature timestamp") -> 401.
+# Covers app.py 7723-7726.
+- id: post__v1_rum_assets__bad_timestamp
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "not-a-number"
+      X-SOBS-Asset-Signature: "abc"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp=1 (abs(FIXED_EPOCH-1)=1704164644 >> 300) ->
+# _verify_rum_asset_signature returns (False, "Asset signature timestamp outside allowed window") -> 401.
+# Covers app.py 7728-7730.
+- id: post__v1_rum_assets__expired_ts
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1"
+      X-SOBS-Asset-Signature: "abc"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
+# ingest_rum_asset: signing key set, timestamp valid, signature is wrong hex ->
+# secrets.compare_digest(sig, expected) fails -> (False, "Invalid asset signature") -> 401.
+# Covers app.py 7743-7744.
+- id: post__v1_rum_assets__wrong_sig
+  path: /v1/rum/assets
+  methods:
+  - POST
+  profile: rumassetupload
+  request:
+    method: POST
+    headers:
+      Content-Type: text/plain
+      X-SOBS-Asset-Timestamp: "1704164645"
+      X-SOBS-Asset-Signature: "0000000000000000000000000000000000000000000000000000000000000000"
+    body_b64: c29icyBwYXJpdHkgcnVtIGFzc2V0IGJvZHkK
 - id: post__v1_rum_client_token
   path: /v1/rum/client-token
   methods:
@@ -6296,6 +6484,34 @@ routes:
     - {type: pageview, timestamp: '2023-06-01T15:00:01Z', sessionId: s2, url: https://app.example/}
     - not-a-dict
     - {type: pageview, timestamp: '2023-06-01T15:00:02Z', sessionId: s3, url: https://app.example/cart}
+# _handle_browser_context_delta WRITE path (app.py 9961-10005): an event carrying a full
+# browserContext dict (non-empty) + sessionId + contextHash causes the helper to write the
+# context into _RUM_BROWSER_CONTEXT_CACHE and then build browser.context.<key> LogAttributes.
+# The response is {"accepted": 1} (deterministic); the coverage gain is the cache-write +
+# attrs-building branches (lines 9977-10004) that the empty-body / no-session-id cases skip.
+# Isolated rumingest profile (writes to hyperdx_sessions only).
+- id: post__v1_rum__browser_context
+  path: /v1/rum
+  methods:
+  - POST
+  profile: rumingest
+  request:
+    method: POST
+    json:
+      events:
+      - type: pageview
+        timestamp: '2023-06-01T16:00:00Z'
+        sessionId: bc-sess-001
+        contextHash: abc123def456
+        url: https://app.example/home
+        browserContext:
+          browserName: Chrome
+          browserVersion: '120.0'
+          osName: macOS
+          osVersion: '14.0'
+          timezone: America/New_York
+          language: en-US
+          deviceClass: desktop
 - id: post__api_enrichment_cve_scan
   path: /api/enrichment/cve/scan
   methods:
@@ -6371,6 +6587,22 @@ routes:
   methods:
   - POST
   profile: depsrich
+  request:
+    method: POST
+    json: {}
+  mask:
+  - '"scanned_at": ?"[^"]*"'
+  mask_reason: scanned_at is _now_iso() (wall-clock); libraries_found/vulns_found/github_backfill_* are byte-compared.
+# cveactions profile: like depsrich but the canned actions/artifacts fixture CONTAINS the
+# sobs-release-dependency-snapshots artifact (id 8001), so _github_actions_dependency_rows
+# downloads the zip (bytes_b64 fixture), parses pip-freeze-linux-x86_64.txt -> requests+flask
+# -> one dependencies-lockfile artifact inserted -> 2 libs -> OSV (canned) scan -> 2 vulns_found.
+# Covers the zip-download+parse branch of _github_actions_dependency_rows (16574-16627).
+- id: post__api_enrichment_cve_scan__cveactions
+  path: /api/enrichment/cve/scan
+  methods:
+  - POST
+  profile: cveactions
   request:
     method: POST
     json: {}

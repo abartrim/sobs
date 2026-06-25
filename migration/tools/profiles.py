@@ -516,6 +516,10 @@ PROFILES: dict[str, dict[str, str]] = {
     # blocks all populate. Constant values -> every derived quantity is timestamp-independent; only
     # the now()-derived bucket/last_seen timestamps drift, masked in the route. No env overlay.
     "rumvitals": {},
+    # webtraffic: hyperdx_sessions rows carrying client.ip (from the geoip parity corpus) so
+    # /api/web-traffic/geo runs the local geoip2fast lookup (_get_geo_db + _geo_lookup_batch) and
+    # returns deterministic country totals. No env overlay; no now() (no time-window args).
+    "webtraffic": {},
     # tagsuggest: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags + sobs_log_attr_keys
     # so /api/settings/tags/condition-suggestions returns non-empty ranked suggestions for every
     # scope/target/field branch. No env overlay — just the (isolated) seed. All seed rows use the
@@ -550,6 +554,12 @@ PROFILES: dict[str, dict[str, str]] = {
     # missing-fixture->404 advances earlier candidates. attempted=4, inserted=4,
     # libraries_found=13, vulns_found=13 (canned OSV -> 1 vuln per lib).
     "lockfiles": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
+    # cveactions: like depsrich but the canned actions/artifacts fixture DOES contain the
+    # sobs-release-dependency-snapshots artifact, so _github_actions_dependency_rows downloads
+    # the zip (bytes_b64 fixture), parses pip-freeze-linux-x86_64.txt -> requests+flask ->
+    # one dependencies-lockfile row inserted -> 2 libs -> OSV (canned) -> 2 vulns_found.
+    # Uses a distinct CommitSha (aabbccdd1122) from depsrich so fixture keys are disjoint.
+    "cveactions": {"SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR},
     # refine: query/refine-chart — query gate on + the LLM endpoint pointed at the canned
     # /chat/completions mock (distinct path so its URL key is unique to this route).
     "refine": {
@@ -627,6 +637,18 @@ PROFILES: dict[str, dict[str, str]] = {
     # so NO _run_agent_rule_instance fires -> agent_runs stays []. No upstream mock is dialed (no run
     # makes an LLM call), but the env is the same shape as notifagent for symmetry.
     "notifagentmiss": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # anomalycheck: AI configured (same mock endpoints as notifagent) so evaluateAgentRuleTriggers
+    # runs. The seed inserts a log-volume spike for "anomaly-prod" so v_derived_signals_anomaly
+    # produces an outlier row; an anomaly rule + agent rule make the event flow to the rate-limit
+    # check; a seeded sobs_agent_runs row (1 s before FIXED_EPOCH) makes elapsed_minutes=0.02 ->
+    # skipped_rate_limited (no uuid/now() in response body -- fully deterministic, no mask needed).
+    "anomalycheck": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
@@ -757,6 +779,18 @@ PROFILES: dict[str, dict[str, str]] = {
     # only volatile headers (Last-Modified / Werkzeug FS-ETag) are dropped by normalize.py, so the
     # comparison is deterministic. No env overlay — the asset lives on the filesystem, not chdb.
     "rumasset": {},
+    # rumassetupload: SOBS_RUM_ASSET_SIGNING_KEY set to a fixed parity key so _verify_rum_asset_signature
+    # (app.py 7706-7745) reaches its signing/validation branches and ingest_rum_asset (9699-9756) hits
+    # its success path. A pre-computed HMAC-SHA256 signature (body=b"sobs parity rum asset body\n",
+    # timestamp=FIXED_EPOCH=1704164645, method=POST, path=/v1/rum/assets, content-type=text/plain,
+    # type=asset, name=parity-asset.txt) drives the success route. Additional cases in the same profile
+    # exercise the missing-headers, invalid-timestamp, expired-timestamp, and wrong-signature 401 arms.
+    # The uploaded asset_id (uuid4.hex) and url differ between Python (frozen counter) and Go (random),
+    # so both fields are masked in the manifest. No seed needed — the upload itself creates the file.
+    # Isolated so the written rum_asset files never ripple into base/rumasset readers.
+    "rumassetupload": {
+        "SOBS_RUM_ASSET_SIGNING_KEY": "sobs-parity-rum-asset-signing-key",
+    },
     # ask: query/ask — guard + main endpoints on DISTINCT mock paths (two canned responses).
     # BODY-KEYED (strict prompt parity): the two ask fixtures are keyed by the sha256 of the EXACT
     # LLM request body (upstream_fixture_key_body), NOT the URL — and the URL-keyed fallbacks were
@@ -821,6 +855,25 @@ PROFILES: dict[str, dict[str, str]] = {
     "vannarepair": {
         "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair/v1",
         "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # askrepair: query/ask AUTO-REPAIR-SUCCESS path. The guard returns SAFE -> flow runs
+    # _vanna_generate_sql, which returns a TRUNCATED CTE SQL (the LLM output was cut off):
+    #   WITH t AS (SELECT count() AS cnt FROM otel_logs WHERE ServiceName IN ('svc-1','svc-
+    # EXPLAIN fails (unbalanced parens / truncated literal). _auto_repair_incomplete_cte_sql fires:
+    #   _repair_truncated_in_clause_literals keeps 'svc-1' (even quote count) and drops 'svc-
+    #   (odd), appends ")" to balance the single open paren, then appends "\nSELECT * FROM t".
+    # The repaired SQL passes EXPLAIN and executes successfully (cnt=0 on the empty fixture).
+    # retry_count=1 (one auto-repair iteration) is byte-compared in the response. DISTINCT mock
+    # endpoint (askrepair/v1) so the truncated-SQL fixture does not clobber the `ask` profile's
+    # valid-SQL fixture. URL-keyed (body-ignored) fixtures suffice because the URL is distinct per
+    # profile; the body-key approach is not needed here. No DB seed required.
+    "askrepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/askrepair/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/askrepair-guard/v1",
         "SOBS_AI_MODEL": "sobs-parity-model",
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_QUERY_PAGE_ENABLED": "1",
@@ -907,6 +960,7 @@ SEEDED_PROFILES = {
     "workitems",
     "notifagent",
     "notifagentmiss",
+    "anomalycheck",
     "dmbackup",
     "k8s",
     "k8srich",
@@ -924,6 +978,7 @@ SEEDED_PROFILES = {
     "tagsuggest",
     "cvebackfill",
     "depsrich",
+    "cveactions",
     "lockfiles",
     "onboard",
     "onbupdate",
@@ -964,6 +1019,7 @@ SEEDED_PROFILES = {
     "summaryrich",
     "enrichlibs",
     "rumasset",
+    "webtraffic",
 }
 
 

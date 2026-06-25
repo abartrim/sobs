@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -38,11 +39,14 @@ func upstreamFixtureKeyBody(method, url string, body []byte) string {
 // upstreamResponse is a canned upstream HTTP response: a status and a parsed JSON body
 // (jsonenc.Object / []any / json.Number, via parseJSONValue), or nil body. RawContent holds the
 // fixture's raw "content" string (used for non-JSON bodies such as the SSE streams the AI helper's
-// /chat/completions mock returns), mirroring the determinism shim's `content` branch.
+// /chat/completions mock returns), mirroring the determinism shim's `content` branch. RawBytes
+// holds binary content decoded from a `bytes_b64` fixture key (base64 → raw bytes), used for
+// non-text binary payloads such as the zip archive the GitHub Actions artifact download returns.
 type upstreamResponse struct {
 	Status     int
 	Body       any
 	RawContent string
+	RawBytes   []byte
 }
 
 var upstreamHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -131,7 +135,13 @@ func (s *server) upstreamFixture(dir, method, url string, reqBody []byte) (upstr
 	if c, ok := spec.Get("content"); ok {
 		rawContent, _ = c.(string)
 	}
-	return upstreamResponse{Status: status, Body: body, RawContent: rawContent}, nil
+	var rawBytes []byte
+	if bv, ok := spec.Get("bytes_b64"); ok {
+		if bs, ok := bv.(string); ok {
+			rawBytes, _ = base64.StdEncoding.DecodeString(bs)
+		}
+	}
+	return upstreamResponse{Status: status, Body: body, RawContent: rawContent, RawBytes: rawBytes}, nil
 }
 
 // notificationSensitiveConfigKeys mirrors app.py _NOTIFICATION_SENSITIVE_CONFIG_KEYS: these

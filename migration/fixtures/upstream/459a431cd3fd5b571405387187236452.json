@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "WITH t AS (SELECT count() AS cnt FROM otel_logs WHERE ServiceName IN ('svc-1','svc-"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 60, "completion_tokens": 20}}}

@@ -203,3 +203,64 @@ func TestGenerateOTLPProtoFixtures(t *testing.T) {
 		t.Logf("OTLP_PROTO_FIXTURE %s body_b64=%s", c.name, base64.StdEncoding.EncodeToString(b))
 	}
 }
+
+// fixtureMetricsSumHistReq builds a deterministic ExportMetricsServiceRequest that exercises the
+// sum and histogram branches of _proto_metrics_to_events / ingestOTLPMetrics.  Two metrics in one
+// resource:
+//   - "requests.total"  – Sum, cumulative, monotonic, asInt=100, attr env=prod
+//   - "latency.ms"      – Histogram, delta, count=5, sum=250.0, bounds=[10,50,200],
+//     buckets=[1,2,1,1], attr env=prod
+//
+// Both data points carry fixtureTimeUnixNano so the golden response is timestamp-independent.
+func fixtureMetricsSumHistReq() *collectormetrics.ExportMetricsServiceRequest {
+	histSum := 250.0
+	return &collectormetrics.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{kvStr("service.name", "web")}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{
+					{
+						Name:        "requests.total",
+						Description: "Total request count",
+						Unit:        "1",
+						Data: &metricspb.Metric_Sum{Sum: &metricspb.Sum{
+							AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+							IsMonotonic:            true,
+							DataPoints: []*metricspb.NumberDataPoint{{
+								TimeUnixNano: fixtureTimeUnixNano,
+								Value:        &metricspb.NumberDataPoint_AsInt{AsInt: 100},
+								Attributes:   []*commonpb.KeyValue{kvStr("env", "prod")},
+							}},
+						}},
+					},
+					{
+						Name:        "latency.ms",
+						Description: "Request latency",
+						Unit:        "ms",
+						Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{
+							AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
+							DataPoints: []*metricspb.HistogramDataPoint{{
+								TimeUnixNano:   fixtureTimeUnixNano,
+								Count:          5,
+								Sum:            &histSum,
+								BucketCounts:   []uint64{1, 2, 1, 1},
+								ExplicitBounds: []float64{10, 50, 200},
+								Attributes:     []*commonpb.KeyValue{kvStr("env", "prod")},
+							}},
+						}},
+					},
+				},
+			}},
+		}},
+	}
+}
+
+// TestGenerateOTLPProtoFixturesSumHist prints the body_b64 for the sum+histogram parity case.
+// Run: go test ./cmd/sobs -run TestGenerateOTLPProtoFixturesSumHist -v
+func TestGenerateOTLPProtoFixturesSumHist(t *testing.T) {
+	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(fixtureMetricsSumHistReq())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	t.Logf("OTLP_PROTO_FIXTURE metrics_sum_hist body_b64=%s", base64.StdEncoding.EncodeToString(b))
+}
