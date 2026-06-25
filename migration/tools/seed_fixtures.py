@@ -2327,6 +2327,167 @@ def seed_workitems(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
 
 
+def seed_aisecret(db) -> None:
+    # Cover _decrypt_secret_value SUCCESS path (app.py 601-607): when SOBS_SETTINGS_ENCRYPTION_KEY
+    # is set at import time, _SETTINGS_ENCRYPTION_SECRET is non-empty, so _load_all_ai_settings ->
+    # _decrypt_secret_value reaches the Fernet.decrypt branch for any "enc:v1:"-prefixed value.
+    #
+    # The seeded ai.github_token is a pre-computed Fernet token encrypted with key
+    # sha256(b"parity-fixed-encryption-key") using frozen time (1704164645) and frozen os.urandom
+    # (BYTE_SEED counter 0). It decrypts to "ghp_parity_token" — the same plaintext as the workitems
+    # plaintext seed — so the backfill proceeds identically and the canned GitHub fixtures resolve.
+    #
+    # Three stale work items (DISTINCT IDs/runs from workitems so there are no ReplacingMergeTree
+    # collisions if both profiles' seeds ever land in the same chdb instance) cover the same three
+    # _derive_copilot_assignment_status arms: closed->completed (#7), copilot-assignee->active (#8),
+    # linked-PR->blocked (#9). CreatedAt are offset by +10 min from the workitems rows.
+    # Encrypted token: enc:v1:gAAAAABlk30l... (Fernet, key=sha256("parity-fixed-encryption-key"))
+    _insert(
+        db,
+        "sobs_ai_settings",
+        [
+            {
+                "Key": "ai.github_repo",
+                "Value": "acme/backfill-demo",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                # Pre-computed: Fernet.encrypt(b"ghp_parity_token") with frozen clock/urandom
+                "Key": "ai.github_token",
+                "Value": (
+                    "enc:v1:gAAAAABlk30lEmTueEfoYc6u9VJfM4d0MUHSDHx_MomfQ9txMK0K"
+                    "RMwJPPNgpCwgxvR0UEQpkzDrizpw3nWH97HCl8tD-4P0l5zh7ZpUxnryKPEVJzesrJQ="
+                ),
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_ai_settings FINAL")
+    _insert(
+        db,
+        "sobs_github_work_items",
+        [
+            {
+                "Id": "d4000000000000000000000000000007",
+                "CreatedAt": "2024-01-02 03:15:07.000000",
+                "CompletedAt": "2024-01-02 03:15:07.000000",
+                "AgentRunId": "br100000000000000000000000000007",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue_copilot",
+                "ServiceName": "checkout",
+                "AnomalyRuleId": "",
+                "AnomalyState": "critical",
+                "SignalSource": "errors",
+                "SignalName": "TimeoutError",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|checkout|errors|timeouterror|critical",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 7,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/7",
+                "CanonicalIssueNumber": 7,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/7",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the closed-issue fixture flips IssueState/IssueTitle/status.
+                "IssueState": "open",
+                "IssueTitle": "Checkout latency: TimeoutError spike",
+                "AnalysisSummary": "Prior root-cause analysis.",
+                "SuggestionSummary": "Prior suggested fix.",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "requested",
+                "CopilotAssignmentReason": "Copilot assignment requested",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "d4000000000000000000000000000008",
+                "CreatedAt": "2024-01-02 03:15:08.000000",
+                "CompletedAt": "2024-01-02 03:15:08.000000",
+                "AgentRunId": "br100000000000000000000000000008",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue_copilot",
+                "ServiceName": "api",
+                "AnomalyRuleId": "",
+                "AnomalyState": "warning",
+                "SignalSource": "metrics",
+                "SignalName": "rss_bytes",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|api|metrics|rss_bytes|warning",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 8,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/8",
+                "CanonicalIssueNumber": 8,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/8",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the copilot-assignee fixture flips IssueTitle + status->active.
+                "IssueState": "open",
+                "IssueTitle": "Memory growth observed",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+            {
+                "Id": "d4000000000000000000000000000009",
+                "CreatedAt": "2024-01-02 03:15:09.000000",
+                "CompletedAt": "2024-01-02 03:15:09.000000",
+                "AgentRunId": "br100000000000000000000000000009",
+                "AgentRuleId": "",
+                "AgentRuleName": "Backfill demo",
+                "AgentAction": "github_issue",
+                "ServiceName": "gateway",
+                "AnomalyRuleId": "",
+                "AnomalyState": "warning",
+                "SignalSource": "logs",
+                "SignalName": "error_rate",
+                "SignalValue": 1.0,
+                "GithubRepo": "acme/backfill-demo",
+                "DedupKey": "acme backfill demo|gateway|logs|error_rate|warning",
+                "DedupDecision": "new_issue",
+                "DedupConfidence": 1.0,
+                "IssueNumber": 9,
+                "IssueUrl": "https://github.com/acme/backfill-demo/issues/9",
+                "CanonicalIssueNumber": 9,
+                "CanonicalIssueUrl": "https://github.com/acme/backfill-demo/issues/9",
+                "RelatedIssueUrls": "[]",
+                "OccurrenceCount": 1,
+                # OLD values -> the linked-PR fixture flips IssueTitle/PrLinked/PrNumber/PrUrl/status.
+                "IssueState": "open",
+                "IssueTitle": "Intermittent 503 from retries",
+                "AnalysisSummary": "",
+                "SuggestionSummary": "",
+                "CopilotAssignmentRequestedAt": 0,
+                "CopilotAssignmentStatus": "not_requested",
+                "CopilotAssignmentReason": "",
+                "PrLinked": 0,
+                "PrNumber": 0,
+                "PrUrl": "",
+                "IsDeleted": 0,
+                "Version": 1704164644000,
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_github_work_items FINAL")
+
+
 def seed_notif_agent(db) -> None:
     # Exercise the AUTOMATIC agent-rule trigger branch of check_notifications (the path that the
     # base/notifcheck profiles never reach because AI is off there). Three isolated seeds:
@@ -5296,6 +5457,7 @@ PROFILE_SEEDS = {
     "issuecreateerr": seed_issues_create_err,  # acme/issue-err POST 422 -> HTTPStatusError handler (6421-6423) + 502
     "onbupdateerr": seed_onbupdate_err,  # acme/onboard-err PATCH 422 -> HTTPStatusError handler (33033-33038)
     "workitems": seed_workitems,  # token + 3 stale work items -> /api/work-items SYNC backfill refreshes each
+    "aisecret": seed_aisecret,  # encrypted token + 3 stale work items -> _decrypt_secret_value SUCCESS (601-607)
     "githubtoken": seed_github_token,
     "onboardrepos": seed_onboard_repos,  # global github token -> onboarding list/inspect token-USED branch
     "repohealth": seed_repohealth,  # apps+releases+github token -> populated repo-health /issues scan

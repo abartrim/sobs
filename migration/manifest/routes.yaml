@@ -2008,6 +2008,18 @@ routes:
   profile: workitems
   request:
     method: GET
+# _decrypt_secret_value SUCCESS path (app.py 601-607): SOBS_SETTINGS_ENCRYPTION_KEY is set in
+# the aisecret profile env BEFORE import app, so _SETTINGS_ENCRYPTION_SECRET is non-empty at
+# module-load time. The seeded ai.github_token has the enc:v1: prefix -> _load_all_ai_settings ->
+# _decrypt_secret_value reaches the Fernet.decrypt branch. Decrypts to "ghp_parity_token",
+# backfill proceeds with the same 6 canned GitHub fixtures (3 items, all change), same output shape.
+- id: get__api_work_items__aisecret
+  path: /api/work-items
+  methods:
+  - GET
+  profile: aisecret
+  request:
+    method: GET
 - id: get__enrichment_cve
   path: /enrichment/cve
   methods:

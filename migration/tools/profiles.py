@@ -1321,6 +1321,19 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aisecret: _decrypt_secret_value SUCCESS path (app.py 601-607). SOBS_SETTINGS_ENCRYPTION_KEY
+    # is applied BEFORE `import app` so _SETTINGS_ENCRYPTION_SECRET = _load_settings_encryption_secret()
+    # sees it at module-import time. The seeded ai.github_token carries a pre-computed Fernet-encrypted
+    # value (enc:v1:..., secret=parity-fixed-encryption-key) so _load_all_ai_settings ->
+    # _decrypt_secret_value reaches the sha256-key + Fernet.decrypt branch (lines 601-607). The
+    # decrypted plaintext is "ghp_parity_token" (same as the workitems seed), so the backfill proceeds
+    # identically: the same 3 stale work items (distinct IDs from workitems) are refreshed via the same
+    # 6 canned GitHub fixtures -> same per-item output shape. SOBS_UPSTREAM_FIXTURES is needed so
+    # the backfill GitHub mock calls resolve.
+    "aisecret": {
+        "SOBS_SETTINGS_ENCRYPTION_KEY": "parity-fixed-encryption-key",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
@@ -1406,6 +1419,7 @@ SEEDED_PROFILES = {
     "rumasset",
     "webtraffic",
     "aihelpermemcons",
+    "aisecret",
 }
 
 
