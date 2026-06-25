@@ -4655,6 +4655,227 @@ def seed_aiturns(db) -> None:
     db.execute("OPTIMIZE TABLE otel_traces FINAL")
 
 
+def seed_aitoolturns(db) -> None:
+    # _build_ai_trace_turn_cards residual arms (app.py 8506-8644, 20 uncovered) +
+    # _summarize_ai_tool_action (8486-8503, 17 uncovered). The existing aiturns profile covers the
+    # group/sort/enumerate skeleton and the turn.complete/in_progress status, but misses:
+    #   - deferred model/provider/chat_id fields (8545, 8547, 8549): first span for a turn has no
+    #     gen_ai.request.model/provider.name/chat_id; a second span with those fields fills them in.
+    #   - turn_summary_request/action/result from a second span (8583, 8585, 8587): same turn, second
+    #     span carries gen_ai.turn.summary.* attrs that the first lacked.
+    #   - guard.result event (8589-8591): gen_ai.guard.allowed + guard_reason set on turn.
+    #   - turn.blocked event (8592-8594): status='blocked', guard_reason from guard_reason or
+    #     error_message.
+    #   - turn.error event (8595-8596): status='failed'.
+    #   - turn.cancelled event (8597-8598): status='cancelled'.
+    #   - tool.proposed/tool.executed events (8602-8632): tool_name, tool_status, tool_summary via
+    #     _summarize_ai_tool_action (sobs.ai.tool.summary absent -> call _summarize_ai_tool_action on
+    #     sobs.ai.tool.action) across all five _summarize_ai_tool_action arms:
+    #       empty text -> "" (8488-8489); JSON parse error -> text[:180] (8492-8493);
+    #       non-dict JSON -> text[:180] (8494-8495); sql_where present -> "type: where" (8499-8500);
+    #       target_page present -> "type -> page" (8501-8502); just action_type (8503).
+    # NOTE: lines 8551 (trace_id deferred) and 8555 (started_at min update) are NOT covered here
+    # because TraceId is always populated (row column, not attr) and the query returns ORDER BY
+    # Timestamp ASC (every subsequent span for a turn is later, never earlier).
+    # Fixed 2023-08-01 timestamps; trace_id aitoolstrace1 (unique, no conflict with other profiles).
+    import json as _json
+
+    tid = "aitoolstrace1"
+
+    def atspan(frac, span_id, name, dur_ms, turn_id, extra_attrs):
+        # Every span must satisfy _AI_SPAN_CONDITION: at least one of gen_ai.provider.name /
+        # gen_ai.system / gen_ai.operation.name must be set. We use gen_ai.operation.name="chat"
+        # as the minimum anchor so spans without provider/model are still fetched.
+        attrs: dict = {"gen_ai.operation.name": "chat", "gen_ai.turn_id": turn_id}
+        attrs.update(extra_attrs)
+        return {
+            "Timestamp": f"2023-08-01 10:00:0{frac}",
+            "TraceId": tid,
+            "SpanId": span_id,
+            "ParentSpanId": "",
+            "SpanName": name,
+            "ServiceName": "aitool-svc",
+            "Duration": int(dur_ms * 1_000_000),  # ns
+            "StatusCode": "STATUS_CODE_OK",
+            "SpanAttributes": attrs,
+        }
+
+    # Turn C — deferred model/provider/chat_id (lines 8545, 8547, 8549) + summaries (8583, 8585, 8587).
+    # C1: first span, no model/provider/chat_id -> turn C starts with those fields empty.
+    # C2: second span, same turn_id, WITH model/provider/chat_id + summary attrs -> fills them.
+    turn_c = "turn-aitool-c"
+    # Turn D — guard.result event (lines 8589-8591).
+    turn_d = "turn-aitool-d"
+    # Turn E — turn.blocked event (lines 8592-8594), guard_reason from guard_reason attr.
+    turn_e = "turn-aitool-e"
+    # Turn F — turn.error event (lines 8595-8596).
+    turn_f = "turn-aitool-f"
+    # Turn G — turn.cancelled event (lines 8597-8598).
+    turn_g = "turn-aitool-g"
+    # Turn H — tool.proposed + tool.executed events (lines 8602-8632) with varied sobs.ai.tool.action
+    # shapes to drive every arm of _summarize_ai_tool_action (8486-8503).
+    turn_h = "turn-aitool-h"
+
+    _insert(
+        db,
+        "otel_traces",
+        [
+            # C1: first span — no model, no provider, no chat_id (fields start empty for turn C).
+            atspan(
+                "1.000000000",
+                "aitoolspan01",
+                "ai.chat",
+                100,
+                turn_c,
+                {},  # model/provider/chat_id all missing -> turn["model"]="" etc.
+            ),
+            # C2: second span for turn C — supplies model/provider/chat_id + summary attrs.
+            # Lines 8545, 8547, 8549 fire (if not turn["model/provider/chat_id"]: assign).
+            # Lines 8583, 8585, 8587 fire (if summary and not turn["..."]: assign).
+            atspan(
+                "2.000000000",
+                "aitoolspan02",
+                "ai.chat",
+                100,
+                turn_c,
+                {
+                    "gen_ai.request.model": "claude-aitool",
+                    "gen_ai.provider.name": "anthropic",
+                    "gen_ai.chat_id": "chat-aitool-c",
+                    "gen_ai.turn.summary.request": "user asked about tools",
+                    "gen_ai.turn.summary.action": "tool was invoked",
+                    "gen_ai.turn.summary.result": "tool answered successfully",
+                },
+            ),
+            # D1: guard.result event — lines 8589-8591.
+            # SpanName "ai.guard.result" -> event_name = "guard.result" (strip "ai." prefix).
+            atspan(
+                "3.000000000",
+                "aitoolspan03",
+                "ai.guard.result",
+                50,
+                turn_d,
+                {
+                    "gen_ai.guard.allowed": "true",
+                    "gen_ai.guard.reason": "request is safe",
+                },
+            ),
+            # E1: turn.blocked event — lines 8592-8594. guard_reason from gen_ai.guard.reason.
+            atspan(
+                "4.000000000",
+                "aitoolspan04",
+                "ai.turn.blocked",
+                50,
+                turn_e,
+                {"gen_ai.guard.reason": "policy violation"},
+            ),
+            # F1: turn.error event — lines 8595-8596.
+            atspan(
+                "5.000000000",
+                "aitoolspan05",
+                "ai.turn.error",
+                50,
+                turn_f,
+                {},
+            ),
+            # G1: turn.cancelled event — lines 8597-8598.
+            atspan(
+                "6.000000000",
+                "aitoolspan06",
+                "ai.turn.cancelled",
+                50,
+                turn_g,
+                {},
+            ),
+            # H1: tool.proposed with sql_where JSON -> _summarize_ai_tool_action lines 8499-8500.
+            # sobs.ai.tool.summary absent -> _summarize_ai_tool_action(sobs.ai.tool.action) called.
+            atspan(
+                "7.000000000",
+                "aitoolspan07",
+                "ai.tool.proposed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "query_data",
+                    "sobs.ai.tool.action": _json.dumps(
+                        {"type": "query", "sql_where": "status = 1"}, ensure_ascii=False
+                    ),
+                    "sobs.ai.action_id": "act-h1",
+                },
+            ),
+            # H2: tool.executed with target_page JSON -> _summarize_ai_tool_action lines 8501-8502.
+            atspan(
+                "8.000000000",
+                "aitoolspan08",
+                "ai.tool.executed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "navigate",
+                    "sobs.ai.tool.action": _json.dumps(
+                        {"type": "navigate", "target_page": "dashboard"}, ensure_ascii=False
+                    ),
+                    "sobs.ai.action_id": "act-h2",
+                },
+            ),
+            # H3: tool.proposed with only action_type JSON -> _summarize_ai_tool_action line 8503.
+            atspan(
+                "9.000000000",
+                "aitoolspan09",
+                "ai.tool.proposed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "refresh",
+                    "sobs.ai.tool.action": _json.dumps({"type": "refresh"}, ensure_ascii=False),
+                    "sobs.ai.action_id": "act-h3",
+                },
+            ),
+            # H4: tool.proposed with non-JSON text -> _summarize_ai_tool_action lines 8492-8493.
+            atspan(
+                "9.100000000",
+                "aitoolspan10",
+                "ai.tool.proposed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "propose_ui_action",
+                    "sobs.ai.tool.action": "not-valid-json",
+                    "sobs.ai.action_id": "act-h4",
+                },
+            ),
+            # H5: tool.proposed with JSON array (non-dict) -> _summarize_ai_tool_action lines 8494-8495.
+            atspan(
+                "9.200000000",
+                "aitoolspan11",
+                "ai.tool.proposed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "propose_ui_action",
+                    "sobs.ai.tool.action": "[1, 2, 3]",
+                    "sobs.ai.action_id": "act-h5",
+                },
+            ),
+            # H6: tool.proposed with empty tool_action -> _summarize_ai_tool_action lines 8488-8489
+            # (returns ""). sobs.ai.tool.summary also absent -> _summarize_ai_tool_action("") called.
+            atspan(
+                "9.300000000",
+                "aitoolspan12",
+                "ai.tool.proposed",
+                50,
+                turn_h,
+                {
+                    "gen_ai.tool.name": "propose_ui_action",
+                    "sobs.ai.action_id": "act-h6",
+                    # sobs.ai.tool.action absent -> str("") -> empty text -> return ""
+                },
+            ),
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+
 def seed_dashview(db) -> None:
     # One dashboard + two charts with FIXED ids so GET /dashboards/<id> (view_custom_dashboard)
     # renders its view branch against real data. The base example seeder also creates an example
@@ -5068,6 +5289,7 @@ PROFILE_SEEDS = {
     "tracewindows": seed_tracewindows,  # now()-anchored trace + 2 overlapping sobs_raw_windows -> overlay segments
     "airich": seed_airich,  # AI span w/ non-numeric + inf token attrs -> _safe_attr_int branches (18757-18760)
     "aiturns": seed_aiturns,  # 1 trace, 5 AI spans, 2 turns -> genai message-render + _build_ai_trace_turn_cards
+    "aitoolturns": seed_aitoolturns,  # tool/guard/blocked/error/cancelled events -> _build_ai_trace_turn_cards residual
     "airichsql": seed_airich,  # same AI span; ISOLATED process so the sql-error totals cache mutation can't leak
     "dashview": seed_dashview,  # dashboard + charts -> GET /dashboards/<id> view branch
     "chartedit": seed_chartedit,  # dashboard + 1 chart -> edit_chart/clone_chart mutation branches

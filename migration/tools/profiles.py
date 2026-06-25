@@ -201,6 +201,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # enumerate over >1 turn. No env overlay -- view_ai is a read-only telemetry view (no AI gate); the
     # isolated seed keeps the base aiview goldens untouched. Fixed 2023 ts -> no now()-window, no masks.
     "aiturns": {},
+    # aitoolturns: residual _build_ai_trace_turn_cards arms (8545/8547/8549/8583/8585/8587/
+    # 8589-8598/8602-8632) + _summarize_ai_tool_action (8486-8503). One trace (aitoolstrace1) with
+    # 12 spans across 6 turns covering: deferred model/provider/chat_id fields; per-turn summary
+    # attrs; guard.result; turn.blocked; turn.error; turn.cancelled; tool.proposed / tool.executed
+    # with all five sobs.ai.tool.action shapes (sql_where / target_page / type-only / non-JSON /
+    # JSON-non-dict / empty). No env overlay; isolated trace id; fixed 2023-08-01 timestamps.
+    "aitoolturns": {},
     # airichsql: the SAME airich seed, but a SEPARATE profile so the raw-SQL exec-error route is
     # captured in its OWN process. view_ai's totals-error append mutates the (aliased) cached
     # _ai_filter_metadata "errors" list in the oracle, which would otherwise leak the "totals=..."
@@ -1365,6 +1372,7 @@ SEEDED_PROFILES = {
     "aiview",
     "airich",
     "aiturns",
+    "aitoolturns",
     "airichsql",
     "tracesrich",
     "tracemetrics",

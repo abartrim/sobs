@@ -2270,6 +2270,21 @@ routes:
     method: GET
     query:
       view: trace
+# aitoolturns profile: GET /ai?view=trace over aitoolstrace1 (12 AI spans, 6 turns). Covers the
+# residual _build_ai_trace_turn_cards arms missed by aiturns: deferred model/provider/chat_id from
+# a second span (8545/8547/8549); per-turn summary attrs (8583/8585/8587); guard.result event
+# (8589-8591); turn.blocked (8592-8594); turn.error (8595-8596); turn.cancelled (8597-8598);
+# tool.proposed/tool.executed (8602-8632) with all five _summarize_ai_tool_action arms (8486-8503):
+# sql_where, target_page, type-only, non-JSON, JSON-non-dict, and empty. Fixed 2023-08-01 timestamps.
+- id: get__ai__aitoolturns
+  path: /ai
+  methods:
+  - GET
+  profile: aitoolturns
+  request:
+    method: GET
+    query:
+      view: trace
 - id: post__api_logs_validate_regex
   path: /api/logs/validate-regex
   methods:
