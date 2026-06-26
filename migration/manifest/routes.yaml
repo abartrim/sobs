@@ -2008,6 +2008,18 @@ routes:
   profile: workitems
   request:
     method: GET
+# _decrypt_secret_value SUCCESS path (app.py 601-607): SOBS_SETTINGS_ENCRYPTION_KEY is set in
+# the aisecret profile env BEFORE import app, so _SETTINGS_ENCRYPTION_SECRET is non-empty at
+# module-load time. The seeded ai.github_token has the enc:v1: prefix -> _load_all_ai_settings ->
+# _decrypt_secret_value reaches the Fernet.decrypt branch. Decrypts to "ghp_parity_token",
+# backfill proceeds with the same 6 canned GitHub fixtures (3 items, all change), same output shape.
+- id: get__api_work_items__aisecret
+  path: /api/work-items
+  methods:
+  - GET
+  profile: aisecret
+  request:
+    method: GET
 - id: get__enrichment_cve
   path: /enrichment/cve
   methods:
@@ -2266,6 +2278,21 @@ routes:
   methods:
   - GET
   profile: aiturns
+  request:
+    method: GET
+    query:
+      view: trace
+# aitoolturns profile: GET /ai?view=trace over aitoolstrace1 (12 AI spans, 6 turns). Covers the
+# residual _build_ai_trace_turn_cards arms missed by aiturns: deferred model/provider/chat_id from
+# a second span (8545/8547/8549); per-turn summary attrs (8583/8585/8587); guard.result event
+# (8589-8591); turn.blocked (8592-8594); turn.error (8595-8596); turn.cancelled (8597-8598);
+# tool.proposed/tool.executed (8602-8632) with all five _summarize_ai_tool_action arms (8486-8503):
+# sql_where, target_page, type-only, non-JSON, JSON-non-dict, and empty. Fixed 2023-08-01 timestamps.
+- id: get__ai__aitoolturns
+  path: /ai
+  methods:
+  - GET
+  profile: aitoolturns
   request:
     method: GET
     query:
@@ -4465,6 +4492,32 @@ routes:
   mask:
   - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
   mask_reason: saved_memory_ids holds exactly one freshly minted memory uuid (frozen-counter Python vs random Go). The mask requires a uuid to be present, so a Go-side empty array would NOT match and the turn would diff RED — i.e. GREEN proves both sides actually wrote a memory. The rest of the turn is byte-compared.
+# Consolidation-success path under the aihelpermemcons profile: a seeded prior sobs_ai_memories
+# row (text "User wants error logs grouped by service", cosine-score 0.8571 with the new candidate)
+# makes _semantic_memory_matches return a non-empty related list so _consolidate_memory_candidates
+# enters its loop body (lines 3851-3854). The body-keyed fixture for the consolidation POST
+# (key f3bbd675…) returns valid JSON {"action":"merge","memory":"...","drop_ids":["mem-prior-cons-01"]}
+# driving the full successful-parse path (lines 3883-3900: json.loads, action extraction,
+# memory_text coercion, drop_ids loop). The outer turn (SSE 7cb42069… URL-keyed) is identical to
+# aihelpermem; saved_memory_ids masked as always.
+- id: post__api_ai_helper_memory__cons
+  path: /api/ai/helper
+  profile: aihelpermemcons
+  methods:
+  - POST
+  request:
+    method: POST
+    json:
+      question: Remember that I prefer error logs grouped by service.
+      page: /logs
+      chat_id: chat-parity-cons01
+      turn_id: turn-parity-cons01
+  mask:
+  - '"saved_memory_ids": ?\["[0-9a-fA-F-]{36}"\]'
+  mask_reason: >
+    saved_memory_ids holds exactly one freshly minted memory uuid (masked as in aihelpermem).
+    The merge action writes the consolidated memory after soft-deleting the prior row; GREEN
+    proves both sides executed the full consolidation-success path (lines 3883-3900).
 # Tool-call path under the aitools profile: the canned MAIN SSE emits a `tool_calls` delta
 # (function propose_ui_action) carrying action_id logs.filter.apply_sql, which EXISTS in the /logs
 # action manifest. This drives the previously-dark tool branch of the (non-streaming) ai_helper

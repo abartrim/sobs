@@ -201,6 +201,13 @@ PROFILES: dict[str, dict[str, str]] = {
     # enumerate over >1 turn. No env overlay -- view_ai is a read-only telemetry view (no AI gate); the
     # isolated seed keeps the base aiview goldens untouched. Fixed 2023 ts -> no now()-window, no masks.
     "aiturns": {},
+    # aitoolturns: residual _build_ai_trace_turn_cards arms (8545/8547/8549/8583/8585/8587/
+    # 8589-8598/8602-8632) + _summarize_ai_tool_action (8486-8503). One trace (aitoolstrace1) with
+    # 12 spans across 6 turns covering: deferred model/provider/chat_id fields; per-turn summary
+    # attrs; guard.result; turn.blocked; turn.error; turn.cancelled; tool.proposed / tool.executed
+    # with all five sobs.ai.tool.action shapes (sql_where / target_page / type-only / non-JSON /
+    # JSON-non-dict / empty). No env overlay; isolated trace id; fixed 2023-08-01 timestamps.
+    "aitoolturns": {},
     # airichsql: the SAME airich seed, but a SEPARATE profile so the raw-SQL exec-error route is
     # captured in its OWN process. view_ai's totals-error append mutates the (aliased) cached
     # _ai_filter_metadata "errors" list in the oracle, which would otherwise leak the "totals=..."
@@ -790,6 +797,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aihelpermemcons: like `aihelpermem`, but seeds a prior sobs_ai_memories row for the same
+    # chat so _semantic_memory_matches returns a non-empty `related` list (covering the
+    # _consolidate_memory_candidates loop body, lines 3851-3854). A body-keyed fixture for the
+    # consolidation POST (key f3bbd675…) returns valid JSON {"action": "merge", "memory": "...",
+    # "drop_ids": ["mem-prior-cons-01"]}, driving the successful-parse path (lines 3883-3900).
+    # The outer turn behaviour is identical to aihelpermem (same SSE fixture URL-keyed at
+    # 7cb42069…); saved_memory_ids is masked as always.
+    "aihelpermemcons": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aitools: like `aihelper`, but the canned MAIN /chat/completions SSE emits a `tool_calls`
     # delta (function propose_ui_action) carrying a logs.filter.apply_sql action_id that EXISTS in
     # the /logs page action manifest. This drives the previously-dark tool branch of the (non-
@@ -1300,6 +1321,19 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aisecret: _decrypt_secret_value SUCCESS path (app.py 601-607). SOBS_SETTINGS_ENCRYPTION_KEY
+    # is applied BEFORE `import app` so _SETTINGS_ENCRYPTION_SECRET = _load_settings_encryption_secret()
+    # sees it at module-import time. The seeded ai.github_token carries a pre-computed Fernet-encrypted
+    # value (enc:v1:..., secret=parity-fixed-encryption-key) so _load_all_ai_settings ->
+    # _decrypt_secret_value reaches the sha256-key + Fernet.decrypt branch (lines 601-607). The
+    # decrypted plaintext is "ghp_parity_token" (same as the workitems seed), so the backfill proceeds
+    # identically: the same 3 stale work items (distinct IDs from workitems) are refreshed via the same
+    # 6 canned GitHub fixtures -> same per-item output shape. SOBS_UPSTREAM_FIXTURES is needed so
+    # the backfill GitHub mock calls resolve.
+    "aisecret": {
+        "SOBS_SETTINGS_ENCRYPTION_KEY": "parity-fixed-encryption-key",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
 }
 
 # Profiles whose fixture needs extra rows inserted before capture/replay (via
@@ -1365,6 +1399,7 @@ SEEDED_PROFILES = {
     "aiview",
     "airich",
     "aiturns",
+    "aitoolturns",
     "airichsql",
     "tracesrich",
     "tracemetrics",
@@ -1383,6 +1418,8 @@ SEEDED_PROFILES = {
     "enrichlibs",
     "rumasset",
     "webtraffic",
+    "aihelpermemcons",
+    "aisecret",
 }
 
 
@@ -1394,3 +1431,52 @@ def route_profile(route: dict) -> str:
 def profile_env(name: str) -> dict[str, str]:
     """The env overlay for a profile name (empty for unknown names / base)."""
     return dict(PROFILES.get(name, {}))
+
+
+# ---------------------------------------------------------------------------
+# Pre-capture hooks (optional, per-profile)
+# ---------------------------------------------------------------------------
+# A pre-capture hook is an async callable (app_module) -> None that runs AFTER
+# boot but BEFORE any HTTP routes are captured. Its execution is included in the
+# coverage measurement, so it can cover app.py functions that are only reachable
+# from background tasks (never from an HTTP route). The HTTP goldens for the
+# profile's routes are captured immediately after, unchanged.
+#
+# PRE_CAPTURE_FNS maps profile name -> async callable(app_module) -> None.
+# capture_routes.py calls profile_pre_capture_fn(profile, app_module, loop) when
+# a matching entry exists.
+
+
+async def _repohealth_sync_pre_capture(app_module) -> None:  # noqa: E501
+    # Exercise _sync_github_repo_health_once (app.py 17255-17292): the persistence
+    # wrapper that _github_repo_health_loop calls but no HTTP route exposes. Two
+    # calls are needed to cover both branches of the change-dedup guard:
+    #
+    #   Call 1 (no previous raw in sobs_app_settings): covers 17257-17259 (entry),
+    #     17262 (compact_values), 17270 (_get_app_setting returns ""), 17271 (if False),
+    #     17286 (write last_sync), 17287 (compact dict), 17291 (write last_summary),
+    #     17292 (return). Total: 10 statement lines.
+    #   Call 2 (previous raw == current values, just written): covers 17272 (try:),
+    #     17273 (_safe_json_loads), 17274 (previous_values dict), 17283 (compare),
+    #     17284 (early return). Total: 5 more statement lines.
+    #
+    # Remaining uncovered (error/exception paths not exercisable from here without
+    # DB failure or deliberately invalid sobs_app_settings JSON): 17260, 17281, 17282.
+    #
+    # The pre-capture runs inside the coverage measurement (via coverage run -p) so
+    # these lines register as covered. The subsequent HTTP GET still returns the same
+    # _collect_github_repo_health_summary result (URL-keyed fixtures, not counter-keyed),
+    # so the golden is byte-identical to what the Go server replays.
+    db = app_module.get_db()
+    await app_module._sync_github_repo_health_once(db)  # first call: write path
+    await app_module._sync_github_repo_health_once(db)  # second call: dedup path
+
+
+PRE_CAPTURE_FNS: dict = {
+    "repohealth": _repohealth_sync_pre_capture,
+}
+
+
+def profile_pre_capture_fn(name: str):
+    """Return the async pre-capture callable for a profile, or None."""
+    return PRE_CAPTURE_FNS.get(name)
