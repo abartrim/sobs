@@ -853,7 +853,11 @@ func mapToDict(v any) any {
 	case string:
 		var parsed any
 		if json.Unmarshal([]byte(x), &parsed) == nil {
-			return parsed
+			// Mirror Python _map_to_dict: return parsed if isinstance(parsed, dict) else {}
+			if m, ok := parsed.(map[string]any); ok {
+				return m
+			}
+			return map[string]any{}
 		}
 		return map[string]any{}
 	default:
