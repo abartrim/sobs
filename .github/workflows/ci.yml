@@ -184,12 +184,15 @@ jobs:
         run: pytest tests/test_integration.py -v
 
       - name: Upload screenshots
-        if: always()
+        # Only on failure — screenshots are a debugging aid for failed integration
+        # runs; uploading 2.8MB every green run filled the account artifact quota.
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: integration-screenshots
           path: tests/screenshots/
           if-no-files-found: warn
+          retention-days: 5
 
   docker:
     name: Build & Push Docker Image
