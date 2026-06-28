@@ -3238,6 +3238,21 @@ routes:
     method: POST
     json:
       sql: SELECT count() FROM otel_logz
+# queryrunchart profile: chart=true exercises the do_chart branch — llama guard ALLOW, named-query
+# gen + execute (use_repair=False), chart-spec gen — that the other query_run cases never reach.
+- id: post__api_query_run__chart
+  path: /api/query/run
+  methods:
+  - POST
+  profile: queryrunchart
+  request:
+    method: POST
+    json:
+      sql: SELECT 'api' AS name, 42 AS value
+      question: show counts by service
+      chart: true
+      preferred_chart_type: bar
+      chart_instruction: by service
 - id: post__api_query_refine_chart
   path: /api/query/refine-chart
   methods:

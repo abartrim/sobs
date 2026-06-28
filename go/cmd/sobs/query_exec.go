@@ -341,9 +341,10 @@ func cellKind(v any) string {
 // inferQueryFieldTypes mirrors app.py _infer_query_field_types: per column it reports the whole-column
 // pandas dtype string and a display kind. The dtype is what pandas infers from the chdb DB-API values:
 // all-int + no null -> int64; all-int WITH a null -> float64 (nullable-int promotion); any float ->
-// float64; all-bool + no null -> bool; all-datetime -> datetime64[ns]; everything else -> object. For
-// an object dtype the kind is then refined from the first non-null cell (bool/int/float/dict-list-tuple/
-// str), so Map/Array/Tuple columns report kind "json" (not "string"). An empty column -> object/string.
+// float64; all-bool + no null -> bool; all-datetime -> datetime64[ns]; a pure-string column (with or
+// without nulls) -> "str" (pandas 3.x's inferred string dtype); Map/Array/Tuple (object) cells and
+// empty/all-null columns -> object. For an object dtype the kind is then refined from the first
+// non-null cell (bool/int/float/dict-list-tuple/str), so Map/Array/Tuple columns report kind "json".
 func inferQueryFieldTypes(columns, rows []any) []any {
 	out := []any{}
 	for idx, col := range columns {
@@ -353,6 +354,7 @@ func inferQueryFieldTypes(columns, rows []any) []any {
 		allNumeric := true // int or float
 		allBool := true
 		allDatetime := true
+		allStr := true // every non-null cell is a plain string (pandas 3.x "str" dtype)
 		var firstNonNull any
 		haveFirst := false
 		for _, rowAny := range rows {
@@ -371,14 +373,16 @@ func inferQueryFieldTypes(columns, rows []any) []any {
 			}
 			switch cellKind(cell) {
 			case "int":
-				allBool, allDatetime = false, false
+				allBool, allDatetime, allStr = false, false, false
 			case "float":
-				allInt, allBool, allDatetime = false, false, false
+				allInt, allBool, allDatetime, allStr = false, false, false, false
 			case "bool":
-				allInt, allNumeric, allDatetime = false, false, false
+				allInt, allNumeric, allDatetime, allStr = false, false, false, false
 			case "datetime":
-				allInt, allNumeric, allBool = false, false, false
-			default: // str / json
+				allInt, allNumeric, allBool, allStr = false, false, false, false
+			case "json": // chdb Map/Array/Tuple -> object cells -> pandas "object" dtype
+				allInt, allNumeric, allBool, allDatetime, allStr = false, false, false, false, false
+			default: // str -> pandas 3.x infers the "str" dtype (allStr stays true)
 				allInt, allNumeric, allBool, allDatetime = false, false, false, false
 			}
 		}
@@ -395,6 +399,8 @@ func inferQueryFieldTypes(columns, rows []any) []any {
 			dtype = "float64"
 		case allBool && !hasNull:
 			dtype = "bool"
+		case allStr: // pure-string column (with or without nulls) -> pandas 3.x "str" dtype
+			dtype = "str"
 		default:
 			dtype = "object"
 		}

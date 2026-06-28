@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "{\"datasets\": [{\"name\": \"by_svc\", \"sql\": \"SELECT 'web' AS name, 7 AS value\", \"purpose\": \"per service\"}]}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 80, "completion_tokens": 30}}}
