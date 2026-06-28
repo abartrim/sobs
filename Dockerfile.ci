@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+# CI build+test image for the Go server. Every heavy input — the apt packages, the Go toolchain,
+# libchdb, and the Go module graph — is its OWN cached layer, pulled from the in-cluster registry
+# buildcache. Only a source change busts the final COPY+build+test layers, so after the first run a
+# build re-runs ONLY the changed code; everything else is a cache hit.
+#
+# The build+test run INSIDE this container (a fresh process tree). That is REQUIRED for chdb
+# (embedded ClickHouse): its global/static state SIGSEGVs when the GitHub Actions .NET runner agent
+# execs `go test` directly, but is fine in a clean container process.
+FROM ubuntu:26.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# --- layer: OS packages (busts only when this RUN changes) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- layer: Go toolchain (busts only on GO_VERSION) ---
+ARG GO_VERSION=1.23.4
+RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    GOTOOLCHAIN=local \
+    GOPROXY=http://athens.ci-cache.svc.cluster.local:5000 \
+    GOSUMDB=off \
+    GOMODCACHE=/root/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+# --- layer: pinned libchdb (busts only on CHDB_VERSION) ---
+ARG CHDB_VERSION=v26.5.0
+RUN mkdir -p /opt/libchdb \
+    && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/linux-x86_64-libchdb.tar.gz" \
+       | tar -C /opt/libchdb -xz \
+    && test -f /opt/libchdb/libchdb.so
+ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
+
+WORKDIR /src/go
+# --- layer: module graph (busts only on go.mod/go.sum) ---
+COPY go/go.mod go/go.sum ./
+RUN go mod download
+
+# --- layers: source -> gofmt/vet/build/test (busts on any source change) ---
+COPY go/ ./
+RUN gofmt_out="$(gofmt -l .)"; if [ -n "$gofmt_out" ]; then echo "::error::not gofmt-clean:"; echo "$gofmt_out"; exit 1; fi
+RUN go vet ./...
+RUN go build ./...
+RUN go test -p 2 -count=1 ./...
+
+# Tiny final stage so the image (if ever pushed) is trivial; the value is the cached build layers.
+FROM scratch AS result
+COPY --from=build /src/go/go.mod /go.mod

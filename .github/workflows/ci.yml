@@ -72,61 +72,31 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: gofmt (formatting gate)
-        working-directory: go
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::These Go files are not gofmt-clean:"; echo "$unformatted"
-            exit 1
-          fi
-
-      - name: go vet
-        working-directory: go
-        run: go vet ./...
-
-      - name: go build
-        working-directory: go
-        run: go build ./...
-
-      # chdb-go loads libchdb at runtime via purego (dlopen), so build/vet need no native lib —
-      # but `go test` boots an embedded chdb. Fetch the EXACT pinned chdb-core build that Python
-      # chdb 4.1.9 ships (see go/CHDB_PIN.md); a drifting kernel could write a store the Python
-      # side can no longer open. The ~60MB tarball is identical across every job/run for a given
-      # version, so cache it (keyed on the version) to skip the download on a hit.
-      - name: Fetch pinned libchdb (chdb-core v26.5.0, cached on the /cache PVC)
-        # The GitHub Actions cache backend is unreachable from the cluster runners, so persist the
-        # ~60MB lib on the shared runner-cache PVC (/cache) and force IPv4 (the cluster has no IPv6
-        # internet egress; an unforced curl picks the AAAA address and fails "network unreachable").
-        run: |
-          set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          cached=/cache/libchdb/v26.5.0/libchdb.so
-          if [ -f "$cached" ]; then
-            cp "$cached" "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-          else
-            curl -4 -fsSL -o /tmp/libchdb.tar.gz \
-              https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-            tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
-            mkdir -p "$(dirname "$cached")" && cp "${GITHUB_WORKSPACE}/.libchdb/libchdb.so" "$cached" || true
-          fi
-          test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-
-      - name: go test
-        working-directory: go
-        env:
-          CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        # chdb (embedded ClickHouse) crashes on init when RLIMIT_NOFILE is the container "infinity"
-        # (~1e9): ClickHouse iterates/closes every fd up to the soft limit. The runner agent runs
-        # steps with that huge default, so chdb SIGSEGVs here even though it runs fine with a sane
-        # limit. Cap nofile to 1M. -p 2 also bounds concurrent chdb instances.
-        run: go test -p 2 -count=1 ./...
+      - name: Build + gofmt/vet/build/test the Go server (Dockerfile.ci)
+        # Dockerfile.ci runs gofmt/vet/build/test as build steps on Ubuntu 26.04. The apt packages,
+        # Go toolchain, libchdb and module graph are cached layers in the in-cluster registry
+        # buildcache, so after the first run ONLY a source change recompiles. Running the tests
+        # in-container (a fresh process tree) also avoids the chdb-under-runner-agent SIGSEGV. The
+        # build resolves Go modules via the in-cluster Athens proxy (network=host reaches it).
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.ci
+          push: false
+          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache
+          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
 
   parity:
     name: Go Parity (byte-diff vs Python oracle)
