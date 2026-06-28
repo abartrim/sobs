@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+# CI parity image: runs the golden-corpus byte-diff (Python oracle vs Go replay) IN-container, on
+# Ubuntu 26.04 LTS (ships Python 3.14, which app.py requires). apt packages, the Go toolchain,
+# libchdb, the pip requirements, and the Go module graph are each cached layers in the in-cluster
+# registry buildcache — after the first run only a source change re-runs the parity step.
+#
+# Running in-container (a fresh process tree) is also REQUIRED for chdb: its global/static state
+# SIGSEGVs when the GitHub Actions .NET runner agent execs the harness directly.
+FROM ubuntu:26.04 AS parity
+ENV DEBIAN_FRONTEND=noninteractive
+
+# --- layer: OS packages incl. Python 3.14 (Ubuntu 26.04 default) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates git build-essential \
+        python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- layer: Go toolchain ---
+ARG GO_VERSION=1.23.4
+RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    GOTOOLCHAIN=local \
+    GOPROXY=http://athens.ci-cache.svc.cluster.local:5000 \
+    GOSUMDB=off \
+    GOMODCACHE=/root/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+# --- layer: pinned libchdb (for the Go replay side) ---
+ARG CHDB_VERSION=v26.5.0
+RUN mkdir -p /opt/libchdb \
+    && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/linux-x86_64-libchdb.tar.gz" \
+       | tar -C /opt/libchdb -xz \
+    && test -f /opt/libchdb/libchdb.so
+ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
+
+WORKDIR /src
+# --- layer: Python deps incl. chdb 4.1.9 wheel (busts only on requirements.txt) ---
+COPY requirements.txt ./
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt pyyaml
+
+# --- layer: Go module graph (busts only on go.mod/go.sum) ---
+COPY go/go.mod go/go.sum ./go/
+RUN cd go && go mod download
+
+# --- layer: full repo + byte-parity (busts on any source change) ---
+COPY . .
+RUN python3 migration/tools/run_parity_ci.py

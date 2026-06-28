@@ -107,55 +107,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            .github/workflows/ci.yml
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: Install runtime dependencies (Python oracle + chdb 4.1.9)
-        # pyyaml is a migration-tool dep (capture_routes reads routes.yaml) not in requirements.txt.
-        run: pip install -r requirements.txt pyyaml
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Byte-diff the Go replay vs the Python oracle (Dockerfile.parity-ci)
+        # run_parity_ci.py runs as a build step in Dockerfile.parity-ci (Ubuntu 26.04 + Python 3.14
+        # + Go + libchdb). The toolchains, libchdb, pip deps and Go module graph are cached layers in
+        # the in-cluster registry buildcache, so after the first run only a source change re-runs the
+        # diff. Running in-container (fresh process) also avoids the chdb-under-runner-agent SIGSEGV.
+        uses: docker/build-push-action@v7
         with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-
-      # The Go server reads/writes the SAME on-disk chdb store the Python oracle created, so its
-      # native libchdb MUST match the Python chdb 4.1.9 wheel (chdb-core v26.5.0). The Python side
-      # uses its own bundled lib; CHDB_LIB_PATH only configures the Go side. Cached (keyed on the
-      # version) and shared with go-build-test, so only the first job per run pays the download.
-      - name: Fetch pinned libchdb (chdb-core v26.5.0, cached on the /cache PVC)
-        # The GitHub Actions cache backend is unreachable from the cluster runners, so persist the
-        # ~60MB lib on the shared runner-cache PVC (/cache) and force IPv4 (the cluster has no IPv6
-        # internet egress; an unforced curl picks the AAAA address and fails "network unreachable").
-        run: |
-          set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          cached=/cache/libchdb/v26.5.0/libchdb.so
-          if [ -f "$cached" ]; then
-            cp "$cached" "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-          else
-            curl -4 -fsSL -o /tmp/libchdb.tar.gz \
-              https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-            tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
-            mkdir -p "$(dirname "$cached")" && cp "${GITHUB_WORKSPACE}/.libchdb/libchdb.so" "$cached" || true
-          fi
-          test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-
-      - name: Capture goldens from the Python oracle and byte-diff the Go replay
-        env:
-          CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        # Cap RLIMIT_NOFILE: chdb/ClickHouse SIGSEGVs on init under the runner agent's "infinity"
-        # (~1e9) fd limit (it iterates all fds). See the go-build-test note.
-        run: |
-          ulimit -n 1048576 || true
-          python migration/tools/run_parity_ci.py
+          context: .
+          file: Dockerfile.parity-ci
+          push: false
+          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache
+          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache,mode=max
 
   oracle-coverage:
     name: Oracle Coverage (app.py capture-coverage ratchet)
