@@ -122,10 +122,15 @@ jobs:
         working-directory: go
         env:
           CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        # -p 2: the runner sees the node's 24 cores, so the default test-binary parallelism boots
-        # ~24 concurrent embedded-chdb instances and blows past the pod memory limit → SIGSEGV.
-        # Cap concurrency so at most a couple of chdb-backed packages run at once.
-        run: go test -p 2 -count=1 ./...
+        # chdb (embedded ClickHouse) crashes on init when RLIMIT_NOFILE is the container "infinity"
+        # (~1e9): ClickHouse iterates/closes every fd up to the soft limit. The runner agent runs
+        # steps with that huge default, so chdb SIGSEGVs here even though it runs fine with a sane
+        # limit. Cap nofile to 1M. -p 2 also bounds concurrent chdb instances.
+        run: |
+          echo "=== fd/limits before cap ==="; ulimit -Sn -Hn || true; grep -iE "open files" /proc/self/limits || true
+          ulimit -n 1048576 || true
+          echo "=== after cap ==="; ulimit -Sn || true
+          go test -p 2 -count=1 ./...
 
   parity:
     name: Go Parity (byte-diff vs Python oracle)
@@ -180,7 +185,11 @@ jobs:
       - name: Capture goldens from the Python oracle and byte-diff the Go replay
         env:
           CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        run: python migration/tools/run_parity_ci.py
+        # Cap RLIMIT_NOFILE: chdb/ClickHouse SIGSEGVs on init under the runner agent's "infinity"
+        # (~1e9) fd limit (it iterates all fds). See the go-build-test note.
+        run: |
+          ulimit -n 1048576 || true
+          python migration/tools/run_parity_ci.py
 
   oracle-coverage:
     name: Oracle Coverage (app.py capture-coverage ratchet)
