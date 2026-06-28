@@ -53,7 +53,6 @@ jobs:
   rum-build:
     name: RUM JS Build & Type Check
     runs-on: sobs-runners
-    needs: dependency-audit
     permissions:
       contents: read
     steps:
@@ -89,7 +88,6 @@ jobs:
   lint:
     name: Code Style & Linting
     runs-on: sobs-runners
-    needs: dependency-audit
     permissions:
       contents: read
     steps:
@@ -120,7 +118,6 @@ jobs:
   test:
     name: Tests
     runs-on: sobs-runners
-    needs: lint
     permissions:
       contents: read
     steps:
@@ -157,7 +154,6 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: sobs-runners
-    needs: test
     permissions:
       contents: read
     steps:
@@ -198,7 +194,7 @@ jobs:
   docker:
     name: Build & Push Docker Image
     runs-on: sobs-runners
-    needs: integration
+    needs: [dependency-audit, rum-build, lint, test, integration]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
