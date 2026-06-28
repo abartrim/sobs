@@ -33,6 +33,15 @@ RUN mkdir -p /opt/libchdb \
     && test -f /opt/libchdb/libchdb.so
 ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
 
+# Parallel parity, brute-forced with resources (this gate is migration-only + temporary):
+#   SOBS_PARITY_WORKERS — profiles captured/replayed concurrently (each its own data-dir + port).
+#   SOBS_CHDB_MAX_SERVER_MB=0 — disable chdb's per-instance cap; it's cgroup-aware and trips under
+#     parallelism, so 0 lets ClickHouse auto-size from the (large) container memory instead.
+# Override at build time with --build-arg PARITY_WORKERS=N.
+ARG PARITY_WORKERS=12
+ENV SOBS_PARITY_WORKERS=${PARITY_WORKERS} \
+    SOBS_CHDB_MAX_SERVER_MB=0
+
 WORKDIR /src
 # --- layer: Python deps incl. chdb 4.1.9 wheel (busts only on requirements.txt) ---
 COPY requirements.txt ./

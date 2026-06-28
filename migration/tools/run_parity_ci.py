@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""Full capture+replay parity run for CI.
+"""Full capture+replay parity run for CI — parallel.
 
-Scripts the manual loop documented in the migration recipe so CI can gate the Go port on
-byte-parity WITHOUT committing the (freely regenerable) golden corpus:
+Gates the Go port on byte-parity WITHOUT committing the (freely regenerable) golden corpus:
 
-  1. for every profile (``base`` + each entry in ``profiles.PROFILES``):
-       re-seed a clean base fixture, apply the profile's isolated seed (if any), then
-       capture that profile's golden bytes from the frozen Python oracle.
-  2. re-seed a clean base once more, then run ``parity_check.py`` — it boots the Go server
-     per profile against a fresh fixture copy and byte-diffs the replay against the goldens.
+  1. Seed a pristine base fixture ONCE, then for every profile (``base`` + each entry in
+     ``profiles.PROFILES``) CONCURRENTLY: copy the base snapshot to an isolated data dir, apply the
+     profile's seed (if any) to that copy, and capture its golden bytes from the frozen Python
+     oracle against that copy.
+  2. Re-seed a clean base, then run ``parity_check.py`` — which boots a Go server per profile (each
+     on its own port + fixture copy) CONCURRENTLY and byte-diffs the replay against the goldens.
 
-``parity_check.py`` already exits non-zero on any RED / MISSING_GOLDEN / UNCOVERED, so this
-wrapper just sequences the capture side (which has no single entrypoint — capture is one
-process per profile so each gets an isolated gate env + uuid counter) and propagates failure.
-
-A clean base is re-seeded before EACH capture because capturing a profile replays its
-mutating routes, which dirty the shared source fixture; the isolated per-profile seeds must
-never ripple into another profile's capture.
+Both phases are parallel: each profile is fully isolated (its own data-dir copy, its own oracle
+process / Go server + port), so there is no shared state to serialize on. Worker count defaults to
+min(8, cpu) and is overridable via SOBS_PARITY_WORKERS (chdb is memory-heavy and contends on
+concurrent opens, so it is bounded rather than unleashed across every core). capture_routes writes
+each route's golden under its own subdir (exist_ok), so concurrent profiles never collide.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -28,44 +29,64 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 REPO = TOOLS.parent.parent
+FIXTURE_SRC = REPO / "migration" / "fixtures" / "data"
 sys.path.insert(0, str(TOOLS))
 
 import profiles as P  # noqa: E402
 
 PY = sys.executable
 
-# chDB's embedded server intermittently fails to open with "recursive_mutex lock failed" /
-# ASYNC_LOAD_WAIT_FAILED when many short-lived chdb processes boot in quick succession (the same
-# contention server.go retries on the Go side). A fresh process almost always succeeds, so retry.
+# chDB's embedded server intermittently fails to open ("recursive_mutex lock failed" /
+# ASYNC_LOAD_WAIT_FAILED) when many short-lived chdb processes boot at once. A fresh process almost
+# always succeeds, so retry the affected unit.
 _MAX_ATTEMPTS = 5
 
 
 def _run(*args: str) -> None:
-    print("+", " ".join(args), flush=True)
     subprocess.run([PY, str(TOOLS / args[0]), *args[1:]], check=True, cwd=str(REPO))
 
 
-def _capture_profile(profile: str) -> None:
-    """Re-seed a clean base, apply the profile's isolated seed, and capture — retried as a UNIT
-    from a clean base so a transient chdb open failure never leaves a half-seeded fixture."""
+def _seed_base() -> None:
+    """Seed the pristine base fixture ONCE (not per profile). Every profile capture then works
+    against an isolated COPY of this snapshot, so the slow full re-seed runs a single time."""
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            _run("seed_fixtures.py")  # clean base (a prior capture may have mutated the fixture)
-            if profile in P.SEEDED_PROFILES:
-                _run("seed_fixtures.py", "--only-profile", profile)
-            _run("capture_routes.py", "--profile", profile)
+            _run("seed_fixtures.py")
             return
         except subprocess.CalledProcessError:
             if attempt == _MAX_ATTEMPTS:
                 raise
-            print(f"  [retry {attempt}/{_MAX_ATTEMPTS - 1}] profile {profile} — chdb contention; resetting", flush=True)
             time.sleep(3)
+
+
+def _capture_profile(idx: int, profile: str) -> None:
+    """Capture one profile against its OWN copy of the base snapshot — retried as a unit from a
+    fresh copy so a transient chdb open failure never leaves a half-seeded fixture."""
+    workdir = REPO / "migration" / "fixtures" / f"_cap_p{idx}"
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            if workdir.exists():
+                shutil.rmtree(workdir)
+            # symlinks=True: chdb's Atomic engine maps `default` to its store via a relative symlink.
+            shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
+            if profile in P.SEEDED_PROFILES:
+                _run("seed_fixtures.py", "--only-profile", profile, "--data-dir", str(workdir))
+                time.sleep(0.5)  # let the seed's chdb release the dir before capture opens it
+            _run("capture_routes.py", "--profile", profile, "--data-dir", str(workdir))
+            shutil.rmtree(workdir, ignore_errors=True)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == _MAX_ATTEMPTS:
+                shutil.rmtree(workdir, ignore_errors=True)
+                raise
+            print(f"  [retry {attempt}/{_MAX_ATTEMPTS - 1}] capture {profile} — chdb contention", flush=True)
+            time.sleep(2.0 * attempt)
 
 
 def _replay() -> None:
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            _run("seed_fixtures.py")  # clean base for the replay's fixture copies
+            _run("seed_fixtures.py")  # pristine base for parity_check's per-profile copies
             _run("parity_check.py")
             return
         except subprocess.CalledProcessError:
@@ -77,11 +98,15 @@ def _replay() -> None:
 
 def main() -> int:
     profiles = ["base"] + sorted(P.PROFILES)
-    print(f"Capturing goldens for {len(profiles)} profile(s): {', '.join(profiles)}", flush=True)
-    for profile in profiles:
-        _capture_profile(profile)
+    workers = int(os.environ.get("SOBS_PARITY_WORKERS", "0") or 0) or min(8, (os.cpu_count() or 4))
+    print(f"Capturing goldens for {len(profiles)} profile(s) — {workers} parallel workers", flush=True)
+    _seed_base()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_capture_profile, i, p): p for i, p in enumerate(profiles)}
+        for f in concurrent.futures.as_completed(futs):
+            f.result()  # re-raise the first capture failure
 
-    print("\n=== Replaying Go server against captured goldens ===", flush=True)
+    print("\n=== Replaying Go server against captured goldens (parallel) ===", flush=True)
     _replay()
     return 0
 

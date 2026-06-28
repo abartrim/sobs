@@ -31,14 +31,15 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(TOOLS))
 
 
-def boot(profile: str = "base"):
+def boot(profile: str = "base", data_dir=None):
     for line in (TOOLS / "parity_env.sh").read_text().splitlines():
         line = line.strip()
         if line.startswith("export ") and "=" in line:
             k, v = line[len("export ") :].split("=", 1)
             os.environ.setdefault(k.strip(), v.strip().strip('"'))
     os.environ["SOBS_PARITY"] = "1"
-    os.environ["SOBS_DATA_DIR"] = str(FIXTURE_DATA)
+    # An isolated data dir lets profiles capture concurrently (each against its own fixture copy).
+    os.environ["SOBS_DATA_DIR"] = str(data_dir or FIXTURE_DATA)
     # A profile's env overlay must be applied BEFORE `import app` so the module-level gate
     # reads (and _AI_ENV_OVERRIDES fallbacks) see it. Direct assignment (not setdefault):
     # the profile is authoritative for its keys.
@@ -138,11 +139,13 @@ def main() -> int:
         help="capture profile (env overlay flipping a feature gate); default 'base'. "
         "Only routes whose `profile:` matches are captured — run once per profile.",
     )
+    ap.add_argument("--data-dir", help="chdb data dir to capture against (default migration/fixtures/data)")
     args = ap.parse_args()
 
     import profiles as P  # local module (sys.path has TOOLS)
 
-    app_module = boot(args.profile)
+    data_dir = Path(args.data_dir) if args.data_dir else FIXTURE_DATA
+    app_module = boot(args.profile, data_dir)
     routes = _load_routes()
     # A profile captures ONLY its own routes (each in a fresh process so the gate env and the
     # determinism counter are isolated). The base profile carries every untagged route.
@@ -154,7 +157,7 @@ def main() -> int:
         if missing:
             raise SystemExit(f"Unknown route ids (or not in profile '{args.profile}'): {sorted(missing)}")
     pre_capture_fn = P.profile_pre_capture_fn(args.profile)
-    print(f"Capturing {len(routes)} route(s) [profile={args.profile}] against {FIXTURE_DATA}…")
+    print(f"Capturing {len(routes)} route(s) [profile={args.profile}] against {data_dir}…")
     asyncio.new_event_loop().run_until_complete(run(app_module.app, app_module, routes, pre_capture_fn))
     return 0
 
