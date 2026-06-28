@@ -766,6 +766,20 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aibuildnamed: dashboards/spec/ai-build with preferred_chart_type set -> exercises the chart-
+    # GUIDANCE block of _vanna_generate_sql (app.py 29499-29521: catalog dataStructure lookup) plus
+    # the NAMED-QUERY parse loop (_vanna_generate_named_queries 29632-29647) and per-query EXECUTE
+    # loop (_vanna_execute_named_queries 22169-22209), which the plain-question aibuild/aibuildspec
+    # cases never reach. BODY-KEYED (constant SQL so no seeded data needed): SQL gen returns
+    # "SELECT 'api' AS name, 42 AS value"; named-queries returns valid JSON with one valid dataset +
+    # two skipped (bad name, non-SELECT) covering the validation continues; chart-spec returns valid
+    # ECharts JSON. Keys filled after a bodydump capture on the runner.
+    "aibuildnamed": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildnamed/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aihelper: /api/ai/helper (non-streaming) — guard + main /chat/completions on DISTINCT mock
     # paths. The main endpoint returns a CANNED SSE stream (the mock's `content` field) that both
     # _stream_llm_endpoint (Python) and streamLLMEndpoint (Go) parse identically; the guard returns

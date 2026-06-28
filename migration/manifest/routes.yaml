@@ -4699,6 +4699,20 @@ routes:
     method: POST
     json:
       question: Show request volume over time
+# aibuildnamed profile: preferred_chart_type drives the chart-GUIDANCE block of _vanna_generate_sql
+# (catalog dataStructure lookup) and a valid named-queries JSON reply drives the named-query parse +
+# execute loops that the other ai-build cases never reach. Constant SQL keeps it seed-free.
+- id: post__api_dashboards_spec_ai_build__named
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuildnamed
+  request:
+    method: POST
+    json:
+      question: Show request volume by service
+      preferred_chart_type: bar
+      chart_instruction: group by service name
 - id: post__api_notifications_subscribe
   path: /api/notifications/subscribe
   methods:
