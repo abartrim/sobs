@@ -24,7 +24,7 @@ env:
 jobs:
   dependency-audit:
     name: Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -61,7 +61,7 @@ jobs:
 
   go-build-test:
     name: Go Build & Test
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -93,8 +93,17 @@ jobs:
       # chdb-go loads libchdb at runtime via purego (dlopen), so build/vet need no native lib —
       # but `go test` boots an embedded chdb. Fetch the EXACT pinned chdb-core build that Python
       # chdb 4.1.9 ships (see go/CHDB_PIN.md); a drifting kernel could write a store the Python
-      # side can no longer open.
+      # side can no longer open. The ~60MB tarball is identical across every job/run for a given
+      # version, so cache it (keyed on the version) to skip the download on a hit.
+      - name: Cache pinned libchdb (chdb-core v26.5.0)
+        id: cache-libchdb
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/.libchdb
+          key: libchdb-v26.5.0-linux-x86_64
+
       - name: Fetch pinned libchdb (chdb-core v26.5.0)
+        if: steps.cache-libchdb.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
@@ -111,8 +120,8 @@ jobs:
 
   parity:
     name: Go Parity (byte-diff vs Python oracle)
-    runs-on: ubuntu-latest
-    needs: go-build-test
+    runs-on: sobs-runners
+    # Independent of go-build-test (run_parity_ci.py builds its own Go binary) — run in parallel.
     permissions:
       contents: read
     steps:
@@ -139,8 +148,17 @@ jobs:
 
       # The Go server reads/writes the SAME on-disk chdb store the Python oracle created, so its
       # native libchdb MUST match the Python chdb 4.1.9 wheel (chdb-core v26.5.0). The Python side
-      # uses its own bundled lib; CHDB_LIB_PATH only configures the Go side.
+      # uses its own bundled lib; CHDB_LIB_PATH only configures the Go side. Cached (keyed on the
+      # version) and shared with go-build-test, so only the first job per run pays the download.
+      - name: Cache pinned libchdb (chdb-core v26.5.0)
+        id: cache-libchdb
+        uses: actions/cache@v5
+        with:
+          path: ${{ github.workspace }}/.libchdb
+          key: libchdb-v26.5.0-linux-x86_64
+
       - name: Fetch pinned libchdb (chdb-core v26.5.0)
+        if: steps.cache-libchdb.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
@@ -160,7 +178,7 @@ jobs:
     # exercises (the rest is unverified by parity). Runs only in a go-main context to keep it off
     # main's pipeline. Python-only (no Go replay) — uses the bundled chdb wheel.
     if: github.ref == 'refs/heads/go-main' || github.base_ref == 'go-main' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -190,8 +208,8 @@ jobs:
 
   docker-go-smoke:
     name: Go Image Build & Smoke
-    runs-on: ubuntu-latest
-    needs: go-build-test
+    runs-on: sobs-runners
+    # Builds its own image from source — independent of go-build-test, so run in parallel.
     permissions:
       contents: read
     steps:
@@ -231,8 +249,7 @@ jobs:
 
   rum-build:
     name: RUM JS Build & Type Check
-    runs-on: ubuntu-latest
-    needs: dependency-audit
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -268,8 +285,7 @@ jobs:
 
   lint:
     name: Code Style & Linting
-    runs-on: ubuntu-latest
-    needs: dependency-audit
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -305,8 +321,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
-    needs: lint
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -350,8 +365,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -407,7 +421,7 @@ jobs:
 
   docker:
     name: Build & Push Docker Image (Go)
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     # The published image is the Go server (the cutover artifact). Gate on the Go pipeline + the
     # Python oracle suite that proves parity, so a release only ships a parity-verified Go build.
     needs: [integration, parity, docker-go-smoke]
@@ -466,7 +480,7 @@ jobs:
 
   register-sobs-release:
     name: Register SOBS Release Metadata
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: [docker, rum-build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
@@ -570,7 +584,7 @@ jobs:
 
   cleanup-ghcr:
     name: Cleanup Stale GHCR Versions
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: docker
     if: false # Disabled: issue #223 - cleanup is too aggressive and removes the latest tag
     permissions:
