@@ -21,7 +21,7 @@ env:
 jobs:
   dependency-audit:
     name: Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -58,7 +58,7 @@ jobs:
 
   rum-build:
     name: RUM JS Build & Type Check
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: dependency-audit
     permissions:
       contents: read
@@ -95,7 +95,7 @@ jobs:
 
   lint:
     name: Code Style & Linting
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: dependency-audit
     permissions:
       contents: read
@@ -132,7 +132,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: lint
     permissions:
       contents: read
@@ -177,7 +177,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: test
     permissions:
       contents: read
@@ -234,7 +234,7 @@ jobs:
 
   docker:
     name: Build & Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: integration
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
@@ -290,7 +290,7 @@ jobs:
 
   register-sobs-release:
     name: Register SOBS Release Metadata
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: [docker, rum-build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
@@ -428,7 +428,7 @@ jobs:
 
   cleanup-ghcr:
     name: Cleanup Stale GHCR Versions
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: docker
     if: false # Disabled: issue #223 - cleanup is too aggressive and removes the latest tag
     permissions:
