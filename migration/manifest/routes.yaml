@@ -4713,6 +4713,20 @@ routes:
       question: Show request volume by service
       preferred_chart_type: bar
       chart_instruction: group by service name
+# aibuildrepair profile: fenced SQL + fenced named-query JSON (with a non-dict + dup-of-base skip) +
+# invalid chart JSON that the repair LLM call fixes -> covers the fence-strip, named-query skip, and
+# chart-spec repair-SUCCESS branches the other ai-build cases never hit.
+- id: post__api_dashboards_spec_ai_build__repair
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuildrepair
+  request:
+    method: POST
+    json:
+      question: Show error counts by service
+      preferred_chart_type: pie
+      chart_instruction: one slice per service
 - id: post__api_notifications_subscribe
   path: /api/notifications/subscribe
   methods:

@@ -780,6 +780,18 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aibuildrepair: ai-build variant exercising the ALTERNATE-RESPONSE branches the success-path
+    # cases miss — SQL gen returns markdown-FENCED SQL (_vanna_generate_sql fence strip 29547-29548);
+    # named-queries returns FENCED JSON incl. a non-dict item and a base_sql duplicate (named fence
+    # 29614-29615, non-dict skip 29635, dup skip 29645); chart-spec returns INVALID JSON so
+    # _vanna_generate_chart_spec falls to _repair_chart_spec_json_with_llm which returns VALID JSON
+    # -> repair-SUCCESS merged-stats path (29880-29889). Four body-keyed fixtures, constant SQL.
+    "aibuildrepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildrepair/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aihelper: /api/ai/helper (non-streaming) — guard + main /chat/completions on DISTINCT mock
     # paths. The main endpoint returns a CANNED SSE stream (the mock's `content` field) that both
     # _stream_llm_endpoint (Python) and streamLLMEndpoint (Go) parse identically; the guard returns
