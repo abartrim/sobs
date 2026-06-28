@@ -20,6 +20,11 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Go modules resolve through the in-cluster Athens proxy (ci-cache, ClusterIP/IPv4) — no per-runner
+  # internet egress and a shared persistent module cache. GOSUMDB=off: the committed go.sum verifies
+  # integrity locally; sum.golang.org isn't reachable from the IPv4-only, netpol'd runners.
+  GOPROXY: http://athens.ci-cache.svc.cluster.local:5000
+  GOSUMDB: "off"
 
 jobs:
   dependency-audit:
@@ -95,21 +100,22 @@ jobs:
       # chdb 4.1.9 ships (see go/CHDB_PIN.md); a drifting kernel could write a store the Python
       # side can no longer open. The ~60MB tarball is identical across every job/run for a given
       # version, so cache it (keyed on the version) to skip the download on a hit.
-      - name: Cache pinned libchdb (chdb-core v26.5.0)
-        id: cache-libchdb
-        uses: actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/.libchdb
-          key: libchdb-v26.5.0-linux-x86_64
-
-      - name: Fetch pinned libchdb (chdb-core v26.5.0)
-        if: steps.cache-libchdb.outputs.cache-hit != 'true'
+      - name: Fetch pinned libchdb (chdb-core v26.5.0, cached on the /cache PVC)
+        # The GitHub Actions cache backend is unreachable from the cluster runners, so persist the
+        # ~60MB lib on the shared runner-cache PVC (/cache) and force IPv4 (the cluster has no IPv6
+        # internet egress; an unforced curl picks the AAAA address and fails "network unreachable").
         run: |
           set -euo pipefail
           mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          curl -fsSL -o /tmp/libchdb.tar.gz \
-            https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-          tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
+          cached=/cache/libchdb/v26.5.0/libchdb.so
+          if [ -f "$cached" ]; then
+            cp "$cached" "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
+          else
+            curl -4 -fsSL -o /tmp/libchdb.tar.gz \
+              https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
+            tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
+            mkdir -p "$(dirname "$cached")" && cp "${GITHUB_WORKSPACE}/.libchdb/libchdb.so" "$cached" || true
+          fi
           test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
 
       - name: go test
@@ -150,21 +156,22 @@ jobs:
       # native libchdb MUST match the Python chdb 4.1.9 wheel (chdb-core v26.5.0). The Python side
       # uses its own bundled lib; CHDB_LIB_PATH only configures the Go side. Cached (keyed on the
       # version) and shared with go-build-test, so only the first job per run pays the download.
-      - name: Cache pinned libchdb (chdb-core v26.5.0)
-        id: cache-libchdb
-        uses: actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/.libchdb
-          key: libchdb-v26.5.0-linux-x86_64
-
-      - name: Fetch pinned libchdb (chdb-core v26.5.0)
-        if: steps.cache-libchdb.outputs.cache-hit != 'true'
+      - name: Fetch pinned libchdb (chdb-core v26.5.0, cached on the /cache PVC)
+        # The GitHub Actions cache backend is unreachable from the cluster runners, so persist the
+        # ~60MB lib on the shared runner-cache PVC (/cache) and force IPv4 (the cluster has no IPv6
+        # internet egress; an unforced curl picks the AAAA address and fails "network unreachable").
         run: |
           set -euo pipefail
           mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          curl -fsSL -o /tmp/libchdb.tar.gz \
-            https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-          tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
+          cached=/cache/libchdb/v26.5.0/libchdb.so
+          if [ -f "$cached" ]; then
+            cp "$cached" "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
+          else
+            curl -4 -fsSL -o /tmp/libchdb.tar.gz \
+              https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
+            tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
+            mkdir -p "$(dirname "$cached")" && cp "${GITHUB_WORKSPACE}/.libchdb/libchdb.so" "$cached" || true
+          fi
           test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
 
       - name: Capture goldens from the Python oracle and byte-diff the Go replay
@@ -216,7 +223,14 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Build the stripped-down Go image
-        run: docker build -f Dockerfile.go -t sobs-go:ci .
+        # --network=host: the dind sidecar shares the runner pod's network namespace, so the build can
+        # reach the in-cluster Athens proxy (ClusterIP:5000, permitted by the egress netpol) for
+        # `go mod download`. GOPROXY/GOSUMDB come from the workflow env.
+        run: |
+          docker build --network=host \
+            --build-arg GOPROXY="${GOPROXY}" \
+            --build-arg GOSUMDB="${GOSUMDB}" \
+            -f Dockerfile.go -t sobs-go:ci .
 
       - name: Start the container (empty /data — must self-seed its schema)
         run: docker run -d --name sobs-go -p 4317:4317 sobs-go:ci
