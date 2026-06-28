@@ -126,14 +126,7 @@ jobs:
         # (~1e9): ClickHouse iterates/closes every fd up to the soft limit. The runner agent runs
         # steps with that huge default, so chdb SIGSEGVs here even though it runs fine with a sane
         # limit. Cap nofile to 1M. -p 2 also bounds concurrent chdb instances.
-        run: |
-          echo "=== DIAGNOSTIC: chdb crash trace (temporary) ==="
-          echo "limits:"; ulimit -a || true
-          echo "go env (toolchain/version):"; go version; go env GOTOOLCHAIN GOFLAGS
-          echo "=== run store tests verbose under GOTRACEBACK=crash ==="
-          GOTRACEBACK=crash go test -v -count=1 ./internal/store/ 2>&1 | head -120 || true
-          echo "=== end diagnostic; real run ==="
-          go test -p 2 -count=1 ./...
+        run: go test -p 2 -count=1 ./...
 
   parity:
     name: Go Parity (byte-diff vs Python oracle)
