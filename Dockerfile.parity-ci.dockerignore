@@ -15,7 +15,8 @@ build/
 node_modules/
 tests/
 *.tar.gz
-# Generated/large dirs the harness regenerates itself:
-migration/golden/
+# Generated/large dirs the harness regenerates itself. NOTE: keep migration/golden/ — most goldens
+# are regenerated, but stream routes (e.g. get__tail) ship a COMMITTED golden that capture skips, so
+# excluding golden/ would drop it -> MISSING_GOLDEN.
 migration/fixtures/data/
 migration/fixtures/_run/

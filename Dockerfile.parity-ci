@@ -38,7 +38,7 @@ ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
 #   SOBS_CHDB_MAX_SERVER_MB=0 — disable chdb's per-instance cap; it's cgroup-aware and trips under
 #     parallelism, so 0 lets ClickHouse auto-size from the (large) container memory instead.
 # Override at build time with --build-arg PARITY_WORKERS=N.
-ARG PARITY_WORKERS=12
+ARG PARITY_WORKERS=20
 ENV SOBS_PARITY_WORKERS=${PARITY_WORKERS} \
     SOBS_CHDB_MAX_SERVER_MB=0
 
