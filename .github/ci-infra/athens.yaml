@@ -17,7 +17,11 @@ data:
   config.toml: |
     GoBinary = "go"
     GoEnv = "development"
-    GoBinaryEnvVars = ["GOROOT=/usr/local/go", "GOPROXY=https://proxy.golang.org", "GOFLAGS=-mod=mod", "GONOSUMCHECK=1", "GOSUMDB=off"]
+    # GOTOOLCHAIN=auto: the image's bundled go is 1.22.7 but project modules need go >= 1.23, so let
+    # the fetcher auto-download the newer toolchain (cached) instead of 404-ing those modules. GOSUMDB
+    # stays at its default (sum.golang.org, reachable over IPv4) — go REQUIRES sumdb verification to
+    # download a toolchain, so GOSUMDB=off here would block the auto-upgrade.
+    GoBinaryEnvVars = ["GOROOT=/usr/local/go", "GOPROXY=https://proxy.golang.org", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=auto", "GOSUMDB=sum.golang.org"]
     GoGetWorkers = 10
     GoGetDir = ""
     ProtocolWorkers = 30

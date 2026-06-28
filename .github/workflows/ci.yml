@@ -122,7 +122,10 @@ jobs:
         working-directory: go
         env:
           CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        run: go test -count=1 ./...
+        # -p 2: the runner sees the node's 24 cores, so the default test-binary parallelism boots
+        # ~24 concurrent embedded-chdb instances and blows past the pod memory limit → SIGSEGV.
+        # Cap concurrency so at most a couple of chdb-backed packages run at once.
+        run: go test -p 2 -count=1 ./...
 
   parity:
     name: Go Parity (byte-diff vs Python oracle)
