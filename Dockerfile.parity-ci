@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1
-# CI parity image: runs the golden-corpus byte-diff (Python oracle vs Go replay) IN-container, on
-# Ubuntu 26.04 LTS (ships Python 3.14, which app.py requires). apt packages, the Go toolchain,
-# libchdb, the pip requirements, and the Go module graph are each cached layers in the in-cluster
-# registry buildcache — after the first run only a source change re-runs the parity step.
+# CI parity + oracle-coverage image (Ubuntu 26.04 LTS, ships Python 3.14 which app.py requires).
+# Captures every profile ONCE under coverage.py, then byte-diffs the Go replay against the goldens
+# AND enforces the app.py coverage floor — folding in what was a separate oracle-coverage job that
+# ran a second, redundant full capture (coverage.py never changes output, so the goldens match).
+# apt packages, the Go toolchain, libchdb, the pip requirements, and the Go module graph are each
+# cached layers in the in-cluster registry buildcache — after the first run only a source change
+# re-runs the capture/diff/gate.
 #
 # Running in-container (a fresh process tree) is also REQUIRED for chdb: its global/static state
 # SIGSEGVs when the GitHub Actions .NET runner agent execs the harness directly.
@@ -39,18 +42,24 @@ ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
 #     parallelism, so 0 lets ClickHouse auto-size from the (large) container memory instead.
 # Override at build time with --build-arg PARITY_WORKERS=N.
 ARG PARITY_WORKERS=12
+# SOBS_PARITY_WITH_COVERAGE=1: capture under coverage.py so this ONE job produces the goldens (for
+# the byte-diff) AND app.py coverage (for the floor gate) — the old separate oracle-coverage job ran
+# a second, redundant full capture. coverage.py never changes output, so the goldens are identical.
 ENV SOBS_PARITY_WORKERS=${PARITY_WORKERS} \
-    SOBS_CHDB_MAX_SERVER_MB=0
+    SOBS_CHDB_MAX_SERVER_MB=0 \
+    SOBS_PARITY_WITH_COVERAGE=1
 
 WORKDIR /src
 # --- layer: Python deps incl. chdb 4.1.9 wheel (busts only on requirements.txt) ---
 COPY requirements.txt ./
-RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt pyyaml
+RUN python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt pyyaml coverage
 
 # --- layer: Go module graph (busts only on go.mod/go.sum) ---
 COPY go/go.mod go/go.sum ./go/
 RUN cd go && go mod download
 
-# --- layer: full repo + byte-parity (busts on any source change) ---
+# --- layer: full repo + structural checks + byte-parity (+ folded-in coverage floor gate) ---
 COPY . .
+# Fast, stdlib-only — fails early on a Python route with no Go handler before the slow capture.
+RUN python3 migration/tools/structural_checks.py
 RUN python3 migration/tools/run_parity_ci.py

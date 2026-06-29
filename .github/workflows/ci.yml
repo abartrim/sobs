@@ -99,7 +99,7 @@ jobs:
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
 
   parity:
-    name: Go Parity (byte-diff vs Python oracle)
+    name: Go Parity + Oracle Coverage (byte-diff + coverage floor)
     runs-on: sobs-runners
     # Independent of go-build-test (run_parity_ci.py builds its own Go binary) — run in parallel.
     permissions:
@@ -119,11 +119,13 @@ jobs:
             [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
               http = true
 
-      - name: Byte-diff the Go replay vs the Python oracle (Dockerfile.parity-ci)
+      - name: Byte-diff Go vs oracle + oracle coverage floor gate (Dockerfile.parity-ci)
         # run_parity_ci.py runs as a build step in Dockerfile.parity-ci (Ubuntu 26.04 + Python 3.14
-        # + Go + libchdb). The toolchains, libchdb, pip deps and Go module graph are cached layers in
-        # the in-cluster registry buildcache, so after the first run only a source change re-runs the
-        # diff. Running in-container (fresh process) also avoids the chdb-under-runner-agent SIGSEGV.
+        # + Go + libchdb). It captures every profile ONCE under coverage.py, then byte-diffs the Go
+        # replay against the goldens AND enforces the app.py coverage floor — folding in what used to
+        # be a separate, redundant oracle-coverage job (a second full capture; coverage.py never
+        # changes output, so the goldens are identical). Toolchains/libchdb/pip deps/module graph are
+        # cached layers; in-container run also avoids the chdb-under-runner-agent SIGSEGV.
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -131,42 +133,6 @@ jobs:
           push: false
           cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache,mode=max
-
-  oracle-coverage:
-    name: Oracle Coverage (app.py capture-coverage ratchet)
-    # Migration-specific gate: measures what fraction of the Python oracle the differential corpus
-    # exercises (the rest is unverified by parity). Runs only in a go-main context to keep it off
-    # main's pipeline. Python-only (no Go replay) — uses the bundled chdb wheel.
-    if: github.ref == 'refs/heads/go-main' || github.base_ref == 'go-main' || github.event_name == 'workflow_dispatch'
-    runs-on: sobs-runners
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
-            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
-              http = true
-            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
-              http = true
-
-      - name: Structural checks + parallel oracle coverage + floor gate (Dockerfile.coverage-ci)
-        # structural_checks/coverage_capture/coverage_gate run as build steps. The pip deps are a
-        # cached layer; coverage_capture fans out across profiles (SOBS_PARITY_WORKERS) in-container
-        # for dind's big memory. The build fails if structural checks fail or coverage < floor.
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.coverage-ci
-          push: false
-          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-coverage-buildcache
-          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-coverage-buildcache,mode=max
 
   docker-go-smoke:
     name: Go Image Build & Smoke
