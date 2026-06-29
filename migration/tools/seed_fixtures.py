@@ -3317,6 +3317,147 @@ def seed_mcp_auth(db) -> None:
     _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
 
 
+def seed_mcptools(db) -> None:
+    # Seed the MCP API key + otel_logs, otel_traces, otel_metrics_gauge rows so all 8 tools/call
+    # query methods return populated, deterministic results. Fixed 2023-06-01 12:00 timestamps are
+    # outside the now()-1h default window; every route request supplies explicit from_ts/to_ts
+    # covering that window so there is no now() dependency.
+    #
+    # Service names use the mcp-svc-* prefix (unused by all other profiles) to avoid cross-profile
+    # contamination. Distinct services, severities, and metric names ensure ORDER BY ties don't
+    # arise that would let ClickHouse pick either row and break parity.
+    import json as _json
+
+    import app as _app
+    import mcp as _mcp
+
+    # --- MCP API key (same derivation as seed_mcp_auth) ---
+    descriptor = {
+        "id": "mk-tools-0001",
+        "name": "Parity Tools Key",
+        "prefix": "sk-parity",
+        "key_hash": _mcp._hash_key("mcp-parity-token"),
+        "created_at": "2024-01-02T03:00:00+00:00",
+        "last_used_at": "",
+    }
+    _app._set_app_setting(db, "mcp.api_keys", _json.dumps([descriptor], ensure_ascii=False))
+
+    # --- otel_logs: 2 rows with distinct timestamps, services, severities, and bodies ---
+    _insert(
+        db,
+        "otel_logs",
+        [
+            {
+                "Timestamp": "2023-06-01 12:00:00.100000000",
+                "ServiceName": "mcp-svc-a",
+                "SeverityText": "ERROR",
+                "SeverityNumber": 17,
+                "EventName": "http.request",
+                "TraceId": "mcp-trace-001",
+                "SpanId": "mcp-span-001",
+                "Body": "mcp test error log alpha",
+                "LogAttributes": {},
+            },
+            {
+                "Timestamp": "2023-06-01 12:00:00.200000000",
+                "ServiceName": "mcp-svc-b",
+                "SeverityText": "INFO",
+                "SeverityNumber": 9,
+                "EventName": "job.run",
+                "TraceId": "mcp-trace-002",
+                "SpanId": "mcp-span-002",
+                "Body": "mcp test info log beta",
+                "LogAttributes": {},
+            },
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_logs FINAL")
+
+    # --- otel_traces: 1 ERROR span so get_recent_errors trace branch + query_otel_traces return data ---
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": "2023-06-01 12:00:00.300000000",
+                "TraceId": "mcp-trace-003",
+                "SpanId": "mcp-span-003",
+                "ParentSpanId": "",
+                "SpanName": "GET /mcp-test",
+                "SpanKind": "SPAN_KIND_SERVER",
+                "ServiceName": "mcp-svc-a",
+                "Duration": 42000000,  # 42ms in nanoseconds
+                "StatusCode": "STATUS_CODE_ERROR",
+                "StatusMessage": "connection refused",
+                "ResourceAttributes": {},
+                "SpanAttributes": {},
+                "ScopeName": "",
+                "ScopeVersion": "",
+                "TraceState": "",
+                "Events.Timestamp": [],
+                "Events.Name": [],
+                "Events.Attributes": [],
+                "Links.TraceId": [],
+                "Links.SpanId": [],
+                "Links.TraceState": [],
+                "Links.Attributes": [],
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_traces FINAL")
+
+    # --- otel_metrics_gauge: 1 row; INSERT fires MV -> populates otel_metrics_1m_agg ---
+    # AttrFingerprint must be non-empty to satisfy the MergeTree ORDER BY (no nullable key).
+    _insert(
+        db,
+        "otel_metrics_gauge",
+        [
+            {
+                "TimeUnix": "2023-06-01 12:00:00.400000000",
+                "ServiceName": "mcp-svc-a",
+                "MetricName": "mcp.test.gauge",
+                "MetricDescription": "MCP parity test gauge",
+                "MetricUnit": "1",
+                "Attributes": {"env": "test"},
+                "Value": 3.14,
+                "AttrFingerprint": "mcp-fp-001",
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE otel_metrics_gauge FINAL")
+    db.execute("OPTIMIZE TABLE otel_metrics_1m_agg FINAL")
+
+    # --- sobs_anomaly_rules: 1 rule so get_anomaly_rules returns populated data ---
+    _insert(
+        db,
+        "sobs_anomaly_rules",
+        [
+            {
+                "Id": "mcp-rule-001",
+                "Name": "MCP parity test rule",
+                "RuleType": "threshold",
+                "SignalSource": "metrics",
+                "SignalName": "mcp.test.gauge",
+                "ServiceName": "mcp-svc-a",
+                "AttrFingerprint": "",
+                "Comparator": "gt",
+                "WarningThreshold": 2.0,
+                "CriticalThreshold": 5.0,
+                "SecondarySignalSource": "",
+                "SecondarySignalName": "",
+                "SecondaryComparator": "gt",
+                "SecondaryWarningThreshold": 0.0,
+                "SecondaryCriticalThreshold": 0.0,
+                "MinSampleCount": 1,
+                "SeasonalBucketsJson": "",
+                "IsDeleted": 0,
+                "Version": 1,
+            }
+        ],
+    )
+    db.execute("OPTIMIZE TABLE sobs_anomaly_rules FINAL")
+
+
 CI_AUTH_APP_ID = "c1c1000000000000000000000000ab01"
 CI_AUTH_REL_ID = "c1c1000000000000000000000000cd02"
 
@@ -5463,6 +5604,7 @@ PROFILE_SEEDS = {
     "repohealth": seed_repohealth,  # apps+releases+github token -> populated repo-health /issues scan
     "mcpkey": seed_mcp_key,
     "mcpauth": seed_mcp_auth,  # api key whose hash auths tools/list + tools/call
+    "mcptools": seed_mcptools,  # api key + logs/traces/metrics/anomaly-rules -> all 8 tools/call methods
     "aichat": seed_aichat,
     "aiexport2": seed_aiexport2,  # gen_ai span w/ non-JSON messages -> export_ai_training json.loads except
     "ciauth": seed_ci_key,  # registered app + managed per-app CI-push key; managed-key require_api_key path

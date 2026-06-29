@@ -6109,6 +6109,149 @@ routes:
       params:
         name: get_anomaly_rules
         arguments: {}
+# mcptools profile: seeded otel_logs/otel_traces/otel_metrics_gauge/sobs_anomaly_rules rows
+# (fixed 2023-06-01 12:00 timestamps) + mcp-parity-token API key. Explicit from_ts/to_ts on every
+# time-windowed tool ensures no now()-based default window dependency. One route per tool so every
+# query handler is exercised with populated, deterministic data.
+- id: post__mcp_tools_call__list_services
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 10
+      method: tools/call
+      params:
+        name: list_services
+        arguments: {}
+- id: post__mcp_tools_call__query_otel_logs
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 11
+      method: tools/call
+      params:
+        name: query_otel_logs
+        arguments:
+          from_ts: '2023-06-01T11:00:00Z'
+          to_ts: '2023-06-01T13:00:00Z'
+- id: post__mcp_tools_call__query_otel_traces
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 12
+      method: tools/call
+      params:
+        name: query_otel_traces
+        arguments:
+          from_ts: '2023-06-01T11:00:00Z'
+          to_ts: '2023-06-01T13:00:00Z'
+- id: post__mcp_tools_call__query_metrics
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 13
+      method: tools/call
+      params:
+        name: query_metrics
+        arguments:
+          from_ts: '2023-06-01T11:00:00Z'
+          to_ts: '2023-06-01T13:00:00Z'
+- id: post__mcp_tools_call__query_metrics_raw
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 14
+      method: tools/call
+      params:
+        name: query_metrics_raw
+        arguments:
+          metric_kind: gauge
+          from_ts: '2023-06-01T11:00:00Z'
+          to_ts: '2023-06-01T13:00:00Z'
+- id: post__mcp_tools_call__get_metric_names
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 15
+      method: tools/call
+      params:
+        name: get_metric_names
+        arguments: {}
+- id: post__mcp_tools_call__get_anomaly_rules
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 16
+      method: tools/call
+      params:
+        name: get_anomaly_rules
+        arguments: {}
+- id: post__mcp_tools_call__get_recent_errors
+  path: /mcp
+  methods:
+  - POST
+  profile: mcptools
+  request:
+    method: POST
+    headers:
+      X-MCP-API-Key: mcp-parity-token
+    json:
+      jsonrpc: '2.0'
+      id: 17
+      method: tools/call
+      params:
+        name: get_recent_errors
+        arguments:
+          from_ts: '2023-06-01T11:00:00Z'
+          to_ts: '2023-06-01T13:00:00Z'
 # ciauth profile: a seeded registered app + release carrying a MANAGED per-app CI-push key (scrypt
 # hash of "ci-parity-token"), with the static SOBS_API_KEY unset. These entries prove the
 # managed-key path of require_api_key — the security hole the static-only port left open:

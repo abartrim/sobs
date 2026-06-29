@@ -365,6 +365,11 @@ PROFILES: dict[str, dict[str, str]] = {
     # mcpauth: a seeded mcp key (scrypt hash of "mcp-parity-token") so authenticated tools/list +
     # tools/call run. Isolated so the seeded key doesn't ripple into base mcp tests.
     "mcpauth": {},
+    # mcptools: seeded otel_logs/otel_traces/otel_metrics_gauge rows (fixed 2023-06-01 timestamps) +
+    # the mcp-parity-token API key, so tools/call for all 8 query tools returns populated, deterministic
+    # data. Explicit from_ts/to_ts in every route request covers the fixed-seed window and avoids
+    # any now()-based default window dependency.
+    "mcptools": {},
     # aichat: a seeded gen_ai chat turn (otel_logs) so the chat-detail reader serializes it. The
     # otel_logs row is isolated to this profile so base telemetry readers stay empty.
     "aichat": {},
@@ -1425,6 +1430,7 @@ SEEDED_PROFILES = {
     "repohealth",
     "mcpkey",
     "mcpauth",
+    "mcptools",
     "aichat",
     "aiexport2",
     "ciauth",
