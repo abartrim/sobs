@@ -3238,6 +3238,21 @@ routes:
     method: POST
     json:
       sql: SELECT count() FROM otel_logz
+# queryrunchart profile: chart=true exercises the do_chart branch — llama guard ALLOW, named-query
+# gen + execute (use_repair=False), chart-spec gen — that the other query_run cases never reach.
+- id: post__api_query_run__chart
+  path: /api/query/run
+  methods:
+  - POST
+  profile: queryrunchart
+  request:
+    method: POST
+    json:
+      sql: SELECT 'api' AS name, 42 AS value
+      question: show counts by service
+      chart: true
+      preferred_chart_type: bar
+      chart_instruction: by service
 - id: post__api_query_refine_chart
   path: /api/query/refine-chart
   methods:
@@ -4699,6 +4714,34 @@ routes:
     method: POST
     json:
       question: Show request volume over time
+# aibuildnamed profile: preferred_chart_type drives the chart-GUIDANCE block of _vanna_generate_sql
+# (catalog dataStructure lookup) and a valid named-queries JSON reply drives the named-query parse +
+# execute loops that the other ai-build cases never reach. Constant SQL keeps it seed-free.
+- id: post__api_dashboards_spec_ai_build__named
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuildnamed
+  request:
+    method: POST
+    json:
+      question: Show request volume by service
+      preferred_chart_type: bar
+      chart_instruction: group by service name
+# aibuildrepair profile: fenced SQL + fenced named-query JSON (with a non-dict + dup-of-base skip) +
+# invalid chart JSON that the repair LLM call fixes -> covers the fence-strip, named-query skip, and
+# chart-spec repair-SUCCESS branches the other ai-build cases never hit.
+- id: post__api_dashboards_spec_ai_build__repair
+  path: /api/dashboards/spec/ai-build
+  methods:
+  - POST
+  profile: aibuildrepair
+  request:
+    method: POST
+    json:
+      question: Show error counts by service
+      preferred_chart_type: pie
+      chart_instruction: one slice per service
 - id: post__api_notifications_subscribe
   path: /api/notifications/subscribe
   methods:

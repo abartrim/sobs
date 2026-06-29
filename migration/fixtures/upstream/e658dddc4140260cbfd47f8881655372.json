@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "{\"xAxis\": {\"type\": \"category\", \"data\": [\"api\", \"web\"]}, \"yAxis\": {\"type\": \"value\"}, \"series\": [{\"type\": \"bar\", \"data\": [42, 7]}]}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 120, "completion_tokens": 30}}}

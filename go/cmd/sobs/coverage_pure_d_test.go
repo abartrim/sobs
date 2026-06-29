@@ -696,15 +696,15 @@ func TestInferQueryFieldTypes(t *testing.T) {
 		t.Errorf("bool kind: got %v, want boolean", k)
 	}
 
-	// String column -> object dtype, string kind
+	// String column -> "str" dtype (pandas 3.x inferred string dtype), string kind
 	rows = []any{
 		[]any{"foo"},
 		[]any{"bar"},
 	}
 	out = inferQueryFieldTypes([]any{"name"}, rows)
 	col0 = out[0].(*jsonenc.Object)
-	if d, _ := col0.Get("dtype"); d != "object" {
-		t.Errorf("str dtype: got %v, want object", d)
+	if d, _ := col0.Get("dtype"); d != "str" {
+		t.Errorf("str dtype: got %v, want str", d)
 	}
 	if k, _ := col0.Get("kind"); k != "string" {
 		t.Errorf("str kind: got %v, want string", k)
@@ -726,8 +726,8 @@ func TestInferQueryFieldTypes(t *testing.T) {
 	if d, _ := id0.Get("dtype"); d != "int64" {
 		t.Errorf("id dtype: got %v, want int64", d)
 	}
-	if d, _ := name1.Get("dtype"); d != "object" {
-		t.Errorf("name dtype: got %v, want object", d)
+	if d, _ := name1.Get("dtype"); d != "str" {
+		t.Errorf("name dtype: got %v, want str", d)
 	}
 	if d, _ := score2.Get("dtype"); d != "float64" {
 		t.Errorf("score dtype: got %v, want float64", d)

@@ -766,6 +766,46 @@ PROFILES: dict[str, dict[str, str]] = {
         "SOBS_QUERY_PAGE_ENABLED": "1",
         "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
     },
+    # aibuildnamed: dashboards/spec/ai-build with preferred_chart_type set -> exercises the chart-
+    # GUIDANCE block of _vanna_generate_sql (app.py 29499-29521: catalog dataStructure lookup) plus
+    # the NAMED-QUERY parse loop (_vanna_generate_named_queries 29632-29647) and per-query EXECUTE
+    # loop (_vanna_execute_named_queries 22169-22209), which the plain-question aibuild/aibuildspec
+    # cases never reach. BODY-KEYED (constant SQL so no seeded data needed): SQL gen returns
+    # "SELECT 'api' AS name, 42 AS value"; named-queries returns valid JSON with one valid dataset +
+    # two skipped (bad name, non-SELECT) covering the validation continues; chart-spec returns valid
+    # ECharts JSON. Keys filled after a bodydump capture on the runner.
+    "aibuildnamed": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildnamed/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # aibuildrepair: ai-build variant exercising the ALTERNATE-RESPONSE branches the success-path
+    # cases miss — SQL gen returns markdown-FENCED SQL (_vanna_generate_sql fence strip 29547-29548);
+    # named-queries returns FENCED JSON incl. a non-dict item and a base_sql duplicate (named fence
+    # 29614-29615, non-dict skip 29635, dup skip 29645); chart-spec returns INVALID JSON so
+    # _vanna_generate_chart_spec falls to _repair_chart_spec_json_with_llm which returns VALID JSON
+    # -> repair-SUCCESS merged-stats path (29880-29889). Four body-keyed fixtures, constant SQL.
+    "aibuildrepair": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildrepair/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
+    # queryrunchart: /api/query/run with chart=true -> the do_chart branch (app.py 30633-30724) that
+    # the bare queryrun profile (non-mock endpoint) never reaches: llama guard ALLOW -> named-query
+    # gen + EXECUTE with use_repair=False (_vanna_execute_named_queries 22191-22194, the non-repair
+    # arm + include_field_types 22208) -> chart-spec gen. Guard (sobs-guard-model, llama -> "safe")
+    # + named + chart-spec are three body-keyed fixtures; the SQL is supplied in the request so there
+    # is no NL->SQL call.
+    "queryrunchart": {
+        "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/queryrunchart/v1",
+        "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/queryrunchart-guard/v1",
+        "SOBS_AI_MODEL": "sobs-parity-model",
+        "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+        "SOBS_QUERY_PAGE_ENABLED": "1",
+        "SOBS_UPSTREAM_FIXTURES": _UPSTREAM_DIR,
+    },
     # aihelper: /api/ai/helper (non-streaming) — guard + main /chat/completions on DISTINCT mock
     # paths. The main endpoint returns a CANNED SSE stream (the mock's `content` field) that both
     # _stream_llm_endpoint (Python) and streamLLMEndpoint (Go) parse identically; the guard returns
