@@ -115,7 +115,7 @@ start_example_app() {
       opentelemetry.instrumentation.logging
       opentelemetry.exporter.otlp.proto.http.trace_exporter
     )
-    local -a missing_modules
+    local -a missing_modules=()
     local mod
     for mod in "${required_modules[@]}"; do
       if ! "$EXAMPLE_APP_PYTHON" - <<PY >/dev/null 2>&1
@@ -127,7 +127,11 @@ PY
       fi
     done
 
-    if [[ ${#missing_modules[@]} -eq 0 ]]; then
+    # An UNASSIGNED `local -a` array is treated as "unset" under `set -u` (still true in bash 5.3), so
+    # `${#missing_modules[@]}` errors "missing_modules: unbound variable" when nothing is missing.
+    # Initialize with `=()` above and test the joined value with a `:-` default so the all-present
+    # (self-correcting) path returns cleanly instead of aborting the launcher.
+    if [[ -z "${missing_modules[*]:-}" ]]; then
       return 0
     fi
 
