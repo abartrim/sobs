@@ -1,0 +1,33 @@
+# Long-lived "parity dev pod" for the fast byte-parity loop, replacing flaky local colima.
+# Runs in the `ci` namespace (no NetworkPolicy -> full egress, same as the GH ARC runners) on the
+# amd64 worker `node4`. Mirrors the CI "Go Parity" job environment: Python 3.14 + chdb 4.1.9 +
+# Go 1.23 + the pinned linux-x86_64 libchdb (chdb-core v26.5.0). The repo is delivered per-run via
+# `kubectl cp` (or git clone, since egress works); targeted parity runs via `kubectl exec`.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: parity-dev
+  namespace: ci
+  labels: {app: sobs-parity-dev}
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: node4
+  restartPolicy: Never
+  containers:
+    - name: parity
+      image: python:3.14-slim
+      command: ["sleep", "infinity"]
+      workingDir: /work
+      env:
+        - {name: CHDB_LIB_PATH, value: /work/.libchdb/libchdb.so}
+        - {name: GOFLAGS, value: "-mod=mod"}
+        - {name: DEBIAN_FRONTEND, value: noninteractive}
+      resources:
+        requests: {cpu: "2", memory: 4Gi}
+        limits: {cpu: "6", memory: 10Gi}
+      volumeMounts:
+        - {name: work, mountPath: /work}
+        - {name: gocache, mountPath: /root/.cache/go-build}
+  volumes:
+    - {name: work, emptyDir: {}}
+    - {name: gocache, emptyDir: {}}
