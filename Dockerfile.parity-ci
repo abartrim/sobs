@@ -45,9 +45,18 @@ ARG PARITY_WORKERS=12
 # SOBS_PARITY_WITH_COVERAGE=1: capture under coverage.py so this ONE job produces the goldens (for
 # the byte-diff) AND app.py coverage (for the floor gate) — the old separate oracle-coverage job ran
 # a second, redundant full capture. coverage.py never changes output, so the goldens are identical.
+# SOBS_GOCOVER instruments the Go binary (parity_check adds -cover -coverpkg=./...) so the SAME
+# byte-parity replay ALSO measures Go integration coverage — NO second replay. Each per-profile Go
+# server flushes counters into GOCOVERDIR on the harness SIGTERM (go/cmd/sobs/main.go); the
+# instrumented replay stays parity-GREEN. go_coverage_report.py merges them into the artifact below.
+# Default OFF (empty) so PR parity stays fast; CI passes --build-arg GOCOVER=1 only on go-main pushes,
+# so the +instrumentation cost is paid once per merge — exactly where the fresh 0%-backlog is wanted.
+ARG GOCOVER=
 ENV SOBS_PARITY_WORKERS=${PARITY_WORKERS} \
     SOBS_CHDB_MAX_SERVER_MB=0 \
-    SOBS_PARITY_WITH_COVERAGE=1
+    SOBS_PARITY_WITH_COVERAGE=1 \
+    SOBS_GOCOVER=${GOCOVER} \
+    GOCOVERDIR=/src/migration/.gocov
 
 WORKDIR /src
 # --- layer: Python deps incl. chdb 4.1.9 wheel (busts only on requirements.txt) ---
@@ -62,4 +71,13 @@ RUN cd go && go mod download
 COPY . .
 # Fast, stdlib-only — fails early on a Python route with no Go handler before the slow capture.
 RUN python3 migration/tools/structural_checks.py
-RUN python3 migration/tools/run_parity_ci.py
+RUN mkdir -p "$GOCOVERDIR" && python3 migration/tools/run_parity_ci.py
+# Merge the instrumented-replay counters into the published Go-coverage artifacts. Tolerant by design
+# (writes empty-but-valid artifacts if no counters) so it is NEVER a new way for the gate to fail.
+RUN python3 migration/tools/go_coverage_report.py
+
+# --- export-only stage: lets CI `--output type=local` extract just the Go-coverage artifacts from the
+# parity stage without shipping an image. Building it requires the parity stage (and thus the gate
+# RUNs) to succeed, so a RED gate / coverage-floor miss still fails the build. ---
+FROM scratch AS cover-export
+COPY --from=parity /src/migration/go_corpus_cover.txt /src/migration/go_corpus_0pct.txt /
