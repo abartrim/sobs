@@ -100,8 +100,10 @@ def live_server():
                 return "".join(content[-lines:]).strip()
         return ""
 
-    # Wait up to 10 s for the server to become ready.
-    deadline = time.time() + 10
+    # Wait up to 60 s for the server to become ready. chdb init can take well over 10 s when the
+    # cluster is busy with the parallel parity capture; a genuine startup crash still fails fast via
+    # the proc.poll() check below, so the wider window only tolerates a slow start, never hides a crash.
+    deadline = time.time() + 60
     while time.time() < deadline:
         if proc.poll() is not None:
             tail = _tail_server_log()
@@ -119,7 +121,7 @@ def live_server():
     else:
         proc.terminate()
         tail = _tail_server_log()
-        msg = "Live SOBS server did not start within 10 seconds"
+        msg = "Live SOBS server did not start within 60 seconds"
         if tail:
             msg += f"\n--- server log tail ---\n{tail}"
         pytest.fail(msg)

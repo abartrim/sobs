@@ -8,6 +8,11 @@
 
 FROM golang:1.23-bookworm AS builder
 ARG TARGETARCH
+# GOPROXY/GOSUMDB default to Go's normal values so unparameterized builds are unaffected; CI on the
+# egress-restricted cluster passes --build-arg GOPROXY=<in-cluster Athens> GOSUMDB=off.
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
 WORKDIR /src
 # Resolve modules first so the layer caches across source-only changes.
 COPY go/go.mod go/go.sum ./go/

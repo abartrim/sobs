@@ -1,0 +1,115 @@
+# Athens — in-cluster Go module proxy/cache for the sobs/pivit CI runners (ci-cache namespace).
+# Runners set GOPROXY=http://athens.ci-cache.svc.cluster.local:5000 (ClusterIP=IPv4, in-cluster) so
+# they need no internet egress for modules and hit a shared persistent cache. Athens fetches upstream
+# from proxy.golang.org over the cluster's working IPv4 egress on a miss.
+#
+# Service rides 5000 because ci-runners-egress only permits runner egress to ci-cache on 5000 + 3142
+# (matched on the destination POD port). The full config goes in a FILE: ATHENS_GO_BINARY_ENV_VARS
+# can carry only one var (no delimiter-split), and the image's trimmed /bin/go self-locates GOROOT
+# wrong — so GOROOT=/usr/local/go must be injected into the fetcher's env via GoBinaryEnvVars (TOML
+# array). A partial config fails Athens's required-field validation, so all required keys are set.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: athens-config
+  namespace: ci-cache
+data:
+  config.toml: |
+    GoBinary = "go"
+    GoEnv = "development"
+    # GOTOOLCHAIN=auto: the image's bundled go is 1.22.7 but project modules need go >= 1.23, so let
+    # the fetcher auto-download the newer toolchain (cached) instead of 404-ing those modules. GOSUMDB
+    # stays at its default (sum.golang.org, reachable over IPv4) — go REQUIRES sumdb verification to
+    # download a toolchain, so GOSUMDB=off here would block the auto-upgrade.
+    GoBinaryEnvVars = ["GOROOT=/usr/local/go", "GOPROXY=https://proxy.golang.org", "GOFLAGS=-mod=mod", "GOTOOLCHAIN=auto", "GOSUMDB=sum.golang.org"]
+    GoGetWorkers = 10
+    GoGetDir = ""
+    ProtocolWorkers = 30
+    LogLevel = "info"
+    LogFormat = "plain"
+    CloudRuntime = "none"
+    EnablePprof = false
+    PprofPort = ":3001"
+    FilterFile = ""
+    RobotsFile = ""
+    Timeout = 300
+    StorageType = "disk"
+    TraceExporterURL = ""
+    StatsExporter = ""
+    SumDBs = ["https://sum.golang.org"]
+    NoSumPatterns = []
+    DownloadMode = "sync"
+    NetworkMode = "strict"
+    SingleFlightType = "memory"
+    IndexType = "none"
+    ShutdownTimeout = 60
+    Port = ":5000"
+
+    [Storage]
+      [Storage.Disk]
+        RootPath = "/var/lib/athens"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: athens-storage
+  namespace: ci-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: microk8s-hostpath
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: athens
+  namespace: ci-cache
+  labels: {app: athens}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: athens}
+  template:
+    metadata:
+      labels: {app: athens}
+    spec:
+      # The Service is named "athens", so K8s would inject a docker-link ATHENS_PORT=tcp://IP:5000
+      # env var that collides with Athens's own ATHENS_PORT config ("too many colons"). Disable it.
+      enableServiceLinks: false
+      containers:
+        - name: athens
+          image: gomods/athens:v0.15.2
+          ports:
+            - containerPort: 5000
+          env:
+            - {name: ATHENS_CONFIG_FILE, value: /config/config.toml}
+          volumeMounts:
+            - {name: storage, mountPath: /var/lib/athens}
+            - {name: config, mountPath: /config, readOnly: true}
+          resources:
+            requests: {cpu: "250m", memory: 512Mi}
+            limits: {cpu: "2", memory: 4Gi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 5000}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: athens-storage
+        - name: config
+          configMap:
+            name: athens-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: athens
+  namespace: ci-cache
+spec:
+  selector: {app: athens}
+  ports:
+    - {port: 5000, targetPort: 5000, protocol: TCP}

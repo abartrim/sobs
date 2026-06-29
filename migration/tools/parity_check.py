@@ -18,12 +18,14 @@ Pure stdlib. Run from repo root.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -140,27 +142,28 @@ def _build_go() -> None:
         raise SystemExit("Go build failed — fix compilation before parity can run.")
 
 
-def _boot_go(workdir: Path, extra_env: dict | None = None):
+def _boot_go(workdir: Path, port: int, extra_env: dict | None = None):
     env = dict(os.environ)
     env["SOBS_PARITY"] = "1"
     env["SOBS_FAKE_EPOCH"] = "1704164645.0"  # FIXED_EPOCH (determinism.py) — freezes the Go clock for parity
     env["SOBS_DATA_DIR"] = str(workdir)
-    env["SOBS_PORT"] = str(PORT)
+    env["SOBS_PORT"] = str(port)
     # Point chdb-go at the pinned libchdb (purego dlopen at runtime). See go/CHDB_PIN.md.
     libdefault = REPO / ".libchdb" / "libchdb.so"
     env.setdefault("CHDB_LIB_PATH", str(libdefault))
     _source_parity_env(env)
     # A profile's env overlay (gate flags) is applied last so it is authoritative; the Go
-    # server reads the gates once at boot, so each profile needs its own server process.
+    # server reads the gates once at boot, so each profile needs its own server process (on its own
+    # port + data dir, which is what lets profiles replay concurrently).
     if extra_env:
         env.update(extra_env)
-    # In a many-profile run the previous chdb embedded server can still hold the data dir when the
-    # next boot opens it, so the server exits during startup. Retry the boot a few times.
+    # Under concurrent boots chdb's embedded server intermittently fails to open the data dir
+    # ("recursive_mutex lock failed"); a fresh process almost always succeeds, so retry.
     for attempt in range(4):
         proc = subprocess.Popen([str(GO_DIR / "sobs")], env=env, cwd=REPO)
         for _ in range(150):  # ~15s readiness window
             try:
-                urllib.request.urlopen(f"http://{HOST}:{PORT}/healthz", timeout=0.2)
+                urllib.request.urlopen(f"http://{HOST}:{port}/healthz", timeout=0.2)
                 return proc
             except Exception:
                 if proc.poll() is not None:
@@ -218,7 +221,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
-def _replay(route: dict) -> dict:
+def _replay(route: dict, port: int) -> dict:
     req = route.get("request") or {}
     method = (req.get("method") or route["methods"][0]).upper()
     path = route["path"]
@@ -240,7 +243,7 @@ def _replay(route: dict) -> dict:
         import base64
 
         data = base64.b64decode(req["body_b64"])
-    r = urllib.request.Request(f"http://{HOST}:{PORT}{path}", data=data, method=method, headers=headers)
+    r = urllib.request.Request(f"http://{HOST}:{port}{path}", data=data, method=method, headers=headers)
     # Do NOT follow redirects: the Quart test client returns the raw 3xx (Location + flash cookie),
     # so the Go replay must compare that response, not the redirect target. Timeout is generous:
     # some routes (e.g. the agent flow) issue chdb queries that hit a permanent error the chdb
@@ -382,48 +385,62 @@ def main() -> int:
             by_profile.setdefault(PROF.route_profile(route), []).append(route)
     profile_order = ["base"] + sorted(p for p in by_profile if p != "base")
 
+    # Replay every profile CONCURRENTLY. Each profile is fully isolated — its own data-dir copy
+    # (_run_p<N>), its own Go server on its own port — so there is no shared state to serialize on.
+    # This collapses the ~N×(copy+seed+boot+chdb-init) serial wall-clock to roughly its slowest
+    # single profile. Worker count is bounded (chdb is memory-heavy + contends on concurrent opens);
+    # override with SOBS_PARITY_WORKERS.
     diffs_state = {"shown": 0}
-    for profile in profile_order:
-        prof_routes = by_profile.get(profile)
-        if not prof_routes:
-            continue
-        workdir = REPO / "migration" / "fixtures" / "_run"
+    merge_lock = threading.Lock()
+    active = [(i, p, by_profile[p]) for i, p in enumerate(profile_order) if by_profile.get(p)]
+    workers = int(os.environ.get("SOBS_PARITY_WORKERS", "0") or 0) or min(8, (os.cpu_count() or 4))
+
+    def _run_one_profile(idx: int, profile: str, prof_routes: list) -> None:
+        port = PORT + 1 + idx  # unique per profile -> safe even when many boot at once
+        workdir = REPO / "migration" / "fixtures" / f"_run_p{idx}"
         if workdir.exists():
             shutil.rmtree(workdir)
-        # symlinks=True is REQUIRED: chdb's Atomic database engine maps the `default` database
-        # to its on-disk store via a relative symlink (metadata/default -> ../store/<uuid>).
-        # Dereferencing it (copytree's default) breaks that mapping and the copy sees 0 tables.
-        # Re-copied per profile so a profile pass never sees a prior profile's mutations.
+        # symlinks=True is REQUIRED: chdb's Atomic engine maps `default` to its store via a relative
+        # symlink (metadata/default -> ../store/<uuid>); dereferencing it yields 0 tables.
         shutil.copytree(FIXTURE_SRC, workdir, symlinks=True)
         if profile in PROF.SEEDED_PROFILES:
             _seed_profile(profile, workdir)
-            time.sleep(1.0)  # let the seed subprocess' chdb fully release before Go opens _run
-        proc = _boot_go(workdir, PROF.profile_env(profile))
+            time.sleep(1.0)  # let the seed subprocess' chdb release the dir before Go opens it
+        proc = _boot_go(workdir, port, PROF.profile_env(profile))
+        green, red, missing = [], [], []
         try:
             for route in prof_routes:
                 rid = route["id"]
                 golden = _read_golden(rid)
                 if golden is None:
-                    results["missing_golden"].append(rid)
+                    missing.append(rid)
                     continue
-                got = _replay(route)
+                got = _replay(route, port)
                 masks = route.get("mask")
                 if N.equal(_apply_masks(golden, masks), _apply_masks(got, masks)):
-                    results["green"].append(rid)
+                    green.append(rid)
                 else:
-                    results["red"].append(rid)
-                    if diffs_state["shown"] < args.max_diffs:
-                        diffs_state["shown"] += 1
-                        _print_diff(rid, golden, got, args.bisect_body)
+                    red.append(rid)
+                    with merge_lock:
+                        if diffs_state["shown"] < args.max_diffs:
+                            diffs_state["shown"] += 1
+                            _print_diff(rid, golden, got, args.bisect_body)
         finally:
-            # Fully release the chdb embedded server (lock + ~768MB) before the next profile's
-            # copytree/seed/boot reuses the _run dir — terminate alone races the next chdb open.
             proc.terminate()
             try:
                 proc.wait(timeout=10)
             except Exception:
                 proc.kill()
-            time.sleep(1.0)
+            shutil.rmtree(workdir, ignore_errors=True)
+        with merge_lock:
+            results["green"].extend(green)
+            results["red"].extend(red)
+            results["missing_golden"].extend(missing)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(_run_one_profile, i, p, r) for (i, p, r) in active]
+        for f in concurrent.futures.as_completed(futs):
+            f.result()  # re-raise any worker exception
 
     _write_results(results, routes, excluded)
     # Only rewrite the ledger on a full run (no scope flags) or when explicitly asked; a scoped

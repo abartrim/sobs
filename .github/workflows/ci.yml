@@ -20,11 +20,16 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Go modules resolve through the in-cluster Athens proxy (ci-cache, ClusterIP/IPv4) — no per-runner
+  # internet egress and a shared persistent module cache. GOSUMDB=off: the committed go.sum verifies
+  # integrity locally; sum.golang.org isn't reachable from the IPv4-only, netpol'd runners.
+  GOPROXY: http://athens.ci-cache.svc.cluster.local:5000
+  GOSUMDB: "off"
 
 jobs:
   dependency-audit:
     name: Dependency Audit
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -61,144 +66,92 @@ jobs:
 
   go-build-test:
     name: Go Build & Test
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: gofmt (formatting gate)
-        working-directory: go
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::These Go files are not gofmt-clean:"; echo "$unformatted"
-            exit 1
-          fi
-
-      - name: go vet
-        working-directory: go
-        run: go vet ./...
-
-      - name: go build
-        working-directory: go
-        run: go build ./...
-
-      # chdb-go loads libchdb at runtime via purego (dlopen), so build/vet need no native lib —
-      # but `go test` boots an embedded chdb. Fetch the EXACT pinned chdb-core build that Python
-      # chdb 4.1.9 ships (see go/CHDB_PIN.md); a drifting kernel could write a store the Python
-      # side can no longer open.
-      - name: Fetch pinned libchdb (chdb-core v26.5.0)
-        run: |
-          set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          curl -fsSL -o /tmp/libchdb.tar.gz \
-            https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-          tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
-          test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-
-      - name: go test
-        working-directory: go
-        env:
-          CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        run: go test -count=1 ./...
+      - name: Build + gofmt/vet/build/test the Go server (Dockerfile.ci)
+        # Dockerfile.ci runs gofmt/vet/build/test as build steps on Ubuntu 26.04. The apt packages,
+        # Go toolchain, libchdb and module graph are cached layers in the in-cluster registry
+        # buildcache, so after the first run ONLY a source change recompiles. Running the tests
+        # in-container (a fresh process tree) also avoids the chdb-under-runner-agent SIGSEGV. The
+        # build resolves Go modules via the in-cluster Athens proxy (network=host reaches it).
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.ci
+          push: false
+          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache
+          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
 
   parity:
-    name: Go Parity (byte-diff vs Python oracle)
-    runs-on: ubuntu-latest
-    needs: go-build-test
+    name: Go Parity + Oracle Coverage (byte-diff + coverage floor)
+    runs-on: sobs-runners
+    # Independent of go-build-test (run_parity_ci.py builds its own Go binary) — run in parallel.
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            .github/workflows/ci.yml
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: Install runtime dependencies (Python oracle + chdb 4.1.9)
-        # pyyaml is a migration-tool dep (capture_routes reads routes.yaml) not in requirements.txt.
-        run: pip install -r requirements.txt pyyaml
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Byte-diff Go vs oracle + oracle coverage floor gate (Dockerfile.parity-ci)
+        # run_parity_ci.py runs as a build step in Dockerfile.parity-ci (Ubuntu 26.04 + Python 3.14
+        # + Go + libchdb). It captures every profile ONCE under coverage.py, then byte-diffs the Go
+        # replay against the goldens AND enforces the app.py coverage floor — folding in what used to
+        # be a separate, redundant oracle-coverage job (a second full capture; coverage.py never
+        # changes output, so the goldens are identical). Toolchains/libchdb/pip deps/module graph are
+        # cached layers; in-container run also avoids the chdb-under-runner-agent SIGSEGV.
+        uses: docker/build-push-action@v7
         with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-
-      # The Go server reads/writes the SAME on-disk chdb store the Python oracle created, so its
-      # native libchdb MUST match the Python chdb 4.1.9 wheel (chdb-core v26.5.0). The Python side
-      # uses its own bundled lib; CHDB_LIB_PATH only configures the Go side.
-      - name: Fetch pinned libchdb (chdb-core v26.5.0)
-        run: |
-          set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/.libchdb"
-          curl -fsSL -o /tmp/libchdb.tar.gz \
-            https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/linux-x86_64-libchdb.tar.gz
-          tar -xzf /tmp/libchdb.tar.gz -C "${GITHUB_WORKSPACE}/.libchdb"
-          test -f "${GITHUB_WORKSPACE}/.libchdb/libchdb.so"
-
-      - name: Capture goldens from the Python oracle and byte-diff the Go replay
-        env:
-          CHDB_LIB_PATH: ${{ github.workspace }}/.libchdb/libchdb.so
-        run: python migration/tools/run_parity_ci.py
-
-  oracle-coverage:
-    name: Oracle Coverage (app.py capture-coverage ratchet)
-    # Migration-specific gate: measures what fraction of the Python oracle the differential corpus
-    # exercises (the rest is unverified by parity). Runs only in a go-main context to keep it off
-    # main's pipeline. Python-only (no Go replay) — uses the bundled chdb wheel.
-    if: github.ref == 'refs/heads/go-main' || github.base_ref == 'go-main' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            .github/workflows/ci.yml
-
-      - name: Structural checks (route matrix / constant allowlists / stubs)
-        # stdlib-only + fast — fails early on a Python route with no Go handler before the slow capture.
-        run: python migration/tools/structural_checks.py
-
-      - name: Install runtime dependencies + coverage
-        run: pip install -r requirements.txt pyyaml coverage
-
-      - name: Measure app.py oracle coverage across all profiles
-        run: python migration/tools/coverage_capture.py
-
-      - name: Enforce coverage floor (ratchet — bump migration/COVERAGE_FLOOR as it rises)
-        run: python migration/tools/coverage_gate.py
+          context: .
+          file: Dockerfile.parity-ci
+          push: false
+          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache
+          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache,mode=max
 
   docker-go-smoke:
     name: Go Image Build & Smoke
-    runs-on: ubuntu-latest
-    needs: go-build-test
+    runs-on: sobs-runners
+    # Builds its own image from source — independent of go-build-test, so run in parallel.
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
 
       - name: Build the stripped-down Go image
-        run: docker build -f Dockerfile.go -t sobs-go:ci .
+        # --network=host: the dind sidecar shares the runner pod's network namespace, so the build can
+        # reach the in-cluster Athens proxy (ClusterIP:5000, permitted by the egress netpol) for
+        # `go mod download`. GOPROXY/GOSUMDB come from the workflow env.
+        run: |
+          docker build --network=host \
+            --build-arg GOPROXY="${GOPROXY}" \
+            --build-arg GOSUMDB="${GOSUMDB}" \
+            -f Dockerfile.go -t sobs-go:ci .
 
       - name: Start the container (empty /data — must self-seed its schema)
         run: docker run -d --name sobs-go -p 4317:4317 sobs-go:ci
@@ -231,8 +184,7 @@ jobs:
 
   rum-build:
     name: RUM JS Build & Type Check
-    runs-on: ubuntu-latest
-    needs: dependency-audit
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -268,8 +220,7 @@ jobs:
 
   lint:
     name: Code Style & Linting
-    runs-on: ubuntu-latest
-    needs: dependency-audit
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -305,8 +256,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-latest
-    needs: lint
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -350,8 +300,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
+    runs-on: sobs-runners
     permissions:
       contents: read
     steps:
@@ -407,7 +356,7 @@ jobs:
 
   docker:
     name: Build & Push Docker Image (Go)
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     # The published image is the Go server (the cutover artifact). Gate on the Go pipeline + the
     # Python oracle suite that proves parity, so a release only ships a parity-verified Go build.
     needs: [integration, parity, docker-go-smoke]
@@ -466,7 +415,7 @@ jobs:
 
   register-sobs-release:
     name: Register SOBS Release Metadata
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: [docker, rum-build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
@@ -570,7 +519,7 @@ jobs:
 
   cleanup-ghcr:
     name: Cleanup Stale GHCR Versions
-    runs-on: ubuntu-latest
+    runs-on: sobs-runners
     needs: docker
     if: false # Disabled: issue #223 - cleanup is too aggressive and removes the latest tag
     permissions:
