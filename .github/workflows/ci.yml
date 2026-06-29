@@ -20,6 +20,12 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Large wheels (chdb_core ~150MB) intermittently break mid-download over the restricted-egress
+  # runners (urllib3 IncompleteRead -> the native Tests/Integration jobs fail while the Dockerized
+  # Go/parity jobs are unaffected). More retries + a longer per-read timeout let pip self-recover;
+  # the in-cluster /cache/pip then caches the wheel so subsequent runs skip the download entirely.
+  PIP_RETRIES: "15"
+  PIP_DEFAULT_TIMEOUT: "120"
   # Go modules resolve through the in-cluster Athens proxy (ci-cache, ClusterIP/IPv4) — no per-runner
   # internet egress and a shared persistent module cache. GOSUMDB=off: the committed go.sum verifies
   # integrity locally; sum.golang.org isn't reachable from the IPv4-only, netpol'd runners.
