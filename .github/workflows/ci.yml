@@ -119,20 +119,45 @@ jobs:
             [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
               http = true
 
-      - name: Byte-diff Go vs oracle + oracle coverage floor gate (Dockerfile.parity-ci)
+      - name: Byte-diff Go vs oracle + oracle coverage floor gate + Go coverage (Dockerfile.parity-ci)
         # run_parity_ci.py runs as a build step in Dockerfile.parity-ci (Ubuntu 26.04 + Python 3.14
         # + Go + libchdb). It captures every profile ONCE under coverage.py, then byte-diffs the Go
         # replay against the goldens AND enforces the app.py coverage floor — folding in what used to
         # be a separate, redundant oracle-coverage job (a second full capture; coverage.py never
         # changes output, so the goldens are identical). Toolchains/libchdb/pip deps/module graph are
         # cached layers; in-container run also avoids the chdb-under-runner-agent SIGSEGV.
+        # SOBS_GOCOVER instruments the SAME replay so it also measures Go integration coverage (no
+        # second replay); the cover-export stage emits the profile + 0%-funcs report via type=local.
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.parity-ci
-          push: false
+          # Instrument the replay for Go coverage ONLY on go-main pushes (post-merge) — keeps PR
+          # parity at baseline speed; empty on PRs (the report script is tolerant).
+          build-args: |
+            GOCOVER=${{ github.ref == 'refs/heads/go-main' && '1' || '' }}
+          target: cover-export
+          outputs: type=local,dest=go-cover
           cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache,mode=max
+
+      - name: Publish Go coverage report to job summary
+        if: always() && github.ref == 'refs/heads/go-main'
+        run: |
+          {
+            echo "## Go integration coverage (corpus — byte-parity replay)"
+            echo '```'
+            head -n 45 go-cover/go_corpus_0pct.txt 2>/dev/null || echo "(no Go coverage report produced this run)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Go coverage artifacts
+        if: always() && github.ref == 'refs/heads/go-main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: go-cover/
+          if-no-files-found: warn
 
   docker-go-smoke:
     name: Go Image Build & Smoke
