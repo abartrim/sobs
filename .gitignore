@@ -36,6 +36,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Local dev: Go SOBS build output + chdb data dir (scripts/start_ollama_ai_test_go.sh)
+.local/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/
