@@ -109,6 +109,7 @@ start_example_app() {
   ensure_example_otel_deps() {
     local -a required_modules
     required_modules=(
+      flask
       opentelemetry.distro
       opentelemetry.instrumentation.flask
       opentelemetry.instrumentation.logging
@@ -138,6 +139,7 @@ PY
 
     echo "[info] installing missing OTEL packages for demo app instrumentation"
     "$EXAMPLE_APP_PYTHON" -m pip install -q \
+      flask \
       opentelemetry-distro \
       opentelemetry-instrumentation \
       opentelemetry-instrumentation-flask \
@@ -217,9 +219,15 @@ PY
 }
 
 if ! curl -fsS "$OLLAMA_TAGS_URL" >/dev/null 2>&1; then
-  echo "[error] cannot reach Ollama at $OLLAMA_BASE_URL" >&2
-  echo "Start Ollama first (example: 'ollama serve') or set OLLAMA_BASE_URL." >&2
-  exit 1
+  if [[ "${SOBS_AI_OPTIONAL:-0}" == "1" ]]; then
+    echo "[warn] Ollama not reachable at $OLLAMA_BASE_URL — continuing without AI (SOBS_AI_OPTIONAL=1)." >&2
+    echo "[warn] AI routes will be unconfigured; data ingestion and the rest of SOBS still work." >&2
+  else
+    echo "[error] cannot reach Ollama at $OLLAMA_BASE_URL" >&2
+    echo "Start Ollama first (example: 'ollama serve') or set OLLAMA_BASE_URL." >&2
+    echo "Or set SOBS_AI_OPTIONAL=1 to run without a model server." >&2
+    exit 1
+  fi
 fi
 
 if [[ "$RUN_CMD_DEFAULT" == "1" ]] && curl -fsS http://127.0.0.1:44317/health >/dev/null 2>&1; then
