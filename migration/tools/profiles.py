@@ -438,6 +438,14 @@ PROFILES: dict[str, dict[str, str]] = {
     # dmbackup: data_management.backup_enabled=1 so backup/run + restore reach their enabled branch
     # (no S3 configured -> deterministic "S3 bucket is not configured" / "backup_name is required").
     "dmbackup": {},
+    # dmcov: non-sensitive DM settings seeded (s3_bucket, s3_region, s3_access_key_id,
+    # s3_path_prefix, backup_enabled, ttl_logs_days, ttl_traces_days) so GET
+    # /settings/data-management renders with populated form fields. Exercises the
+    # handleDataManagementGet if-raw-non-empty branch and the template's backup/TTL-related
+    # value-display paths. Sensitive keys (s3_secret_access_key, backup_encryption_password)
+    # are not seeded → dm_secret_present stays {false,false} (no SOBS_SETTINGS_ENCRYPTION_KEY
+    # needed). No env overlay — pure isolated seed.
+    "dmcov": {},
     # dmsecret: SOBS_SETTINGS_ENCRYPTION_KEY set so the data-management secret-save path runs its
     # at-rest-encryption branch. Its POST stores s3_secret_access_key + backup_encryption_password
     # (Fernet-encrypted at rest), then a follow-up GET renders dm_secret_present=true with the
@@ -1404,6 +1412,7 @@ SEEDED_PROFILES = {
     "notifagentmiss",
     "anomalycheck",
     "dmbackup",
+    "dmcov",
     "k8s",
     "k8srich",
     "k8sprom",

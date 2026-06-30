@@ -813,6 +813,28 @@ def seed_dm_backup(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
 
 
+def seed_dm_cov(db) -> None:
+    # dmcov: seed non-sensitive DM settings so GET /settings/data-management renders with
+    # populated form values (s3_bucket, s3_region, s3_access_key_id, s3_path_prefix,
+    # backup_enabled, ttl_logs_days, ttl_traces_days). This exercises the
+    # handleDataManagementGet populated-data branch (the if raw != "" and not sensitive branch).
+    # Sensitive keys (s3_secret_access_key, backup_encryption_password) are intentionally NOT
+    # seeded here (dm_secret_present stays false for both), keeping the test deterministic and
+    # not requiring SOBS_SETTINGS_ENCRYPTION_KEY (that is covered by dmsecret).
+    # All values are fixed/constant — no now()-derived non-determinism.
+    rows = [
+        {"Key": "data_management.backup_enabled", "Value": "1", "UpdatedAt": _TS},
+        {"Key": "data_management.s3_bucket", "Value": "my-parity-bucket", "UpdatedAt": _TS},
+        {"Key": "data_management.s3_region", "Value": "us-east-1", "UpdatedAt": _TS},
+        {"Key": "data_management.s3_access_key_id", "Value": "AKIAPARITYTEST0001", "UpdatedAt": _TS},
+        {"Key": "data_management.s3_path_prefix", "Value": "sobs-backups", "UpdatedAt": _TS},
+        {"Key": "data_management.ttl_logs_days", "Value": "30", "UpdatedAt": _TS},
+        {"Key": "data_management.ttl_traces_days", "Value": "7", "UpdatedAt": _TS},
+    ]
+    _insert(db, "sobs_app_settings", rows)
+    db.execute("OPTIMIZE TABLE sobs_app_settings FINAL")
+
+
 def seed_repo_app(db) -> None:
     # One registered app + a release + a github token, so the /settings/repositories/<id>/...
     # actions (realtime/rotate/revoke/save/releases/delete) and github-token/validate run their
@@ -5570,6 +5592,7 @@ PROFILE_SEEDS = {
     "anomalycheck": seed_anomalycheck,  # anomaly-prod log spike -> outlier event -> rate-limited agent_runs entry
     "notifeval": seed_notifeval,  # rules w/ REAL conditions+matching tags -> eval fire/no-fire/cooldown/disabled arms
     "dmbackup": seed_dm_backup,
+    "dmcov": seed_dm_cov,  # non-sensitive DM settings -> GET /settings/data-management populated form
     "k8s": seed_k8s,  # backup_enabled=1; backup/run + restore reach their enabled branch
     "k8srich": seed_k8srich,  # OTEL-native k8s.* gauge rows -> _fetch_k8s_from_otel otel-branch populated
     "k8sprom": seed_k8sprom,  # prometheus (kube_*) gauge+sum rows -> _fetch_k8s_from_otel prometheus-branch

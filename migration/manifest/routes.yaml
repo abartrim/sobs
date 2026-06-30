@@ -7308,6 +7308,24 @@ routes:
   - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
   - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
   - <span class="text-(?:warning|success)">\s*[0-9]+
+# dmcov profile: non-sensitive DM settings seeded (backup_enabled=1, s3_bucket, s3_region,
+# s3_access_key_id, s3_path_prefix, ttl_logs_days, ttl_traces_days). The GET renders the form
+# with populated field values, exercising the if-raw-non-empty branch in handleDataManagementGet
+# and the template's backup/TTL value-display paths (backup_enabled checked, s3_bucket/region/
+# prefix/access_key_id shown, TTL day inputs populated). dm_secret_present stays {false,false}
+# since neither sensitive key is seeded. db-stats card masked (non-deterministic system.parts).
+- id: get__settings_data_management__dmcov
+  path: /settings/data-management
+  methods:
+  - GET
+  profile: dmcov
+  mask:
+  - <table class="table table-sm table-hover mb-0 dm-stats-table">[\s\S]*?</table>
+  - Total rows \(active parts\)</td>\s*<td class="fw-semibold">\s*[0-9,]+
+  - <td class="fw-semibold">[0-9][0-9.]* [A-Z]*B</td>
+  - "[0-9]+\\.[0-9]+\xD7|[0-9]+\xD7"
+  - <span class="text-(?:warning|success)">\s*[0-9]+
+  mask_reason: "db-stats table (system.parts active-part merge timing) is non-deterministic; all DM settings form values are byte-compared."
 # dmttl profile: data-management save with apply_ttl=1 (app.py save_dm_settings -> _apply_dm_ttl).
 # Parity-invisible on the base empty POST, so a dedicated profile exercises the TTL branch. The
 # OTel tables exist in the base fixture, so the day-based ALTER … MODIFY TTL runs for real; the
