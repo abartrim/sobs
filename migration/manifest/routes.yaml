@@ -6605,10 +6605,13 @@ routes:
 # (anomaly summary + 1m sparkline + hotspot) and Error-trend (direction + by_type + 180min
 # sparkline) blocks populate (app.py 17472-17633), plus a now()-relative session group in the
 # default sessions view. Constant seed values -> all counts/values/states/ratings are
-# timestamp-independent and byte-compared; only the now()-derived TIMESTAMPS drift between capture
-# and replay (the vitals/error sparkline "t" buckets, the session group's last_ts, and each
-# session event's ts) -> masked. The "t" mask covers every JSON "t": "..." sparkline bucket; the
-# YYYY-MM-DD HH:MM:SS date mask covers the remaining now()-derived timestamps (last_ts / event ts).
+# timestamp-independent and byte-compared; only the now()-derived TIMESTAMPS and the error
+# sparkline array drift between capture and replay. The "t" mask covers vitals sparkline "t"
+# buckets; the date masks cover session last_ts/event ts; mask 5 covers the entire 180-bucket
+# errData array (WITH FILL FROM toStartOfMinute(now()-3h) TO toStartOfMinute(now())) — when
+# capture and replay cross a minute boundary the whole array shifts one bucket, moving the
+# non-zero "v" entries (v=1 at now()-45min; v=5 at now()-5min) to different character positions
+# in the serialized JSON so the "t" mask alone is insufficient (same-length body, different bytes).
 - id: get__rum__rumvitals
   path: /rum
   methods:
@@ -6619,7 +6622,8 @@ routes:
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}[ +][0-9]{2}:[0-9]{2}:[0-9]{2}'
   - '[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}'
   - '[0-9]{4}-[0-9]{2}-[0-9]{2}'
-  mask_reason: the rumvitals seed lands now()-relative web-vital + error rows so every view_rum vitals/error-trend block populates. All counts/values/states/ratings are deterministic from the constant seed (value=1200/rating=good, recent=5/prior=1 -> trend up, error=5/unhandledrejection=1) and byte-compared; only the now()-derived timestamps drift between capture and replay. Mask 1 redacts every sparkline t-bucket field; mask 2 (YYYY-MM-DD HH:MM:SS) redacts the full-form last_ts/data-utc-ts/ev.ts renders; mask 3 (HH:MM:SS.mmm) redacts the time-only session-ts span the template splits out (rum.html last_ts[11:23]); mask 4 (bare YYYY-MM-DD) redacts the date-only span (last_ts[:10]) so a capture/replay that straddles MIDNIGHT (different calendar day) stays byte-identical — the prior same-day assumption was the cross-midnight flake source.
+  - 'var errData  = \[.*?\]'
+  mask_reason: the rumvitals seed lands now()-relative web-vital + error rows so every view_rum vitals/error-trend block populates. All counts/values/states/ratings are deterministic from the constant seed (value=1200/rating=good, recent=5/prior=1 -> trend up, error=5/unhandledrejection=1) and byte-compared; only the now()-derived timestamps and the errData sparkline drift between capture and replay. Mask 1 redacts every vitals sparkline t-bucket field (sparkData); mask 2 (YYYY-MM-DD HH:MM:SS) redacts the full-form last_ts/data-utc-ts/ev.ts renders; mask 3 (HH:MM:SS.mmm) redacts the time-only session-ts span; mask 4 (bare YYYY-MM-DD) redacts the date-only span for cross-midnight stability; mask 5 (var errData = [...]) redacts the entire 180-bucket error sparkline — it uses WITH FILL FROM toStartOfMinute(now()-3h) TO toStartOfMinute(now()) so when capture and replay cross a minute boundary the whole array shifts one bucket and the non-zero v entries (v=1 at now()-45min; v=5 at now()-5min) appear at different character positions in the serialized JSON, producing same-length bodies with differing bytes that the "t" mask alone cannot fix.
 - id: post__metrics_rules_auto
   path: /metrics/rules/auto
   methods:
