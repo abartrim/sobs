@@ -100,10 +100,13 @@ def live_server():
                 return "".join(content[-lines:]).strip()
         return ""
 
-    # Wait up to 60 s for the server to become ready. chdb init can take well over 10 s when the
-    # cluster is busy with the parallel parity capture; a genuine startup crash still fails fast via
-    # the proc.poll() check below, so the wider window only tolerates a slow start, never hides a crash.
-    deadline = time.time() + 60
+    # Wait for the server to become ready. chdb init can stall well past 60 s when node4 is under
+    # memory pressure from the concurrent parity job's 14Gi dind — the server log tail shows it hung
+    # at "chDB connect target" with a jemalloc high-memory warning (alive, just slow). A genuine
+    # startup crash still fails fast via the proc.poll() check below, so this wide window only
+    # tolerates a slow start, never hides a crash.
+    READY_TIMEOUT_S = 180
+    deadline = time.time() + READY_TIMEOUT_S
     while time.time() < deadline:
         if proc.poll() is not None:
             tail = _tail_server_log()
@@ -121,7 +124,7 @@ def live_server():
     else:
         proc.terminate()
         tail = _tail_server_log()
-        msg = "Live SOBS server did not start within 60 seconds"
+        msg = f"Live SOBS server did not start within {READY_TIMEOUT_S} seconds"
         if tail:
             msg += f"\n--- server log tail ---\n{tail}"
         pytest.fail(msg)
