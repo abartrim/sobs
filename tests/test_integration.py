@@ -1700,8 +1700,19 @@ class TestUIQA:
 
         close_btn = page.locator("#onboardingWizardModal .btn-close").first
         if close_btn.count() > 0:
-            close_btn.click(timeout=5000)
-            page.wait_for_selector("#onboardingWizardModal.show", state="hidden", timeout=5000)
+            # Bootstrap ignores a hide() issued while the modal is still running its fade-in
+            # transition, so a single close click that lands mid-animation is silently swallowed
+            # and the wizard stays open — an intermittent CI flake. Retry the dismiss until the
+            # modal is actually hidden rather than assuming one click takes effect.
+            for _ in range(3):
+                close_btn.click(timeout=5000)
+                try:
+                    page.wait_for_selector("#onboardingWizardModal.show", state="hidden", timeout=5000)
+                    break
+                except PlaywrightError:
+                    continue
+            else:
+                page.wait_for_selector("#onboardingWizardModal.show", state="hidden", timeout=10000)
 
         assert not dialog_alerts, f"Native browser dialogs on /settings/repositories: {dialog_alerts}"
 
