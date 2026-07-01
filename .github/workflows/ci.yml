@@ -317,8 +317,11 @@ jobs:
       - name: Run unit tests with coverage + diff-cover gate
         # Runs inside the deps image (chdb baked in) against the bind-mounted workspace, so
         # coverage.xml and .git stay on the shared runner/dind volume for the gate + artifact.
+        # SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise trips
+        # inside the nested dind container and makes memory-limited queries misbehave (the same
+        # flag the parity build and the integration job set).
         run: |
-          docker run --rm -v "$PWD:/app" -w /app sobs-ci-python:local bash -c '
+          docker run --rm -e SOBS_CHDB_MAX_SERVER_MB=0 -v "$PWD:/app" -w /app sobs-ci-python:local bash -c '
             set -euo pipefail
             git config --global --add safe.directory /app
             echo "SOBS/chDB env snapshot"; env | sort | grep -E "^(SOBS_|CHDB_)" || true
