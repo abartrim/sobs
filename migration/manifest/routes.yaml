@@ -776,6 +776,18 @@ routes:
   request:
     method: GET
     query: {trace_id: aaaa1111bbbb2222cccc3333dddd4444}
+# api_raw_span truncation branch (app.py 15749-15762): the rawspanbig profile seeds one span whose
+# single ~40 KB attribute pushes the masked-payload JSON over _RAW_SPAN_MAX_BYTES (32 KB), so the
+# handler re-renders with each attribute value clipped to _ATTR_TRUNCATE=512 chars + "…" and returns
+# truncated=true. Byte-verifies Go handleApiRawSpan's truncation pass (handlers_pathparam.go:175-188),
+# previously unexercised by the corpus (all-ASCII value → rune/byte-slice-agnostic).
+- id: get__api_traces_span__truncated
+  path: /api/traces/span/cccc000000000001
+  methods:
+  - GET
+  profile: rawspanbig
+  request:
+    method: GET
 - id: get__v1_apps_seeded
   path: /v1/apps/f1000000000000000000000000000001
   methods:
@@ -7281,6 +7293,20 @@ routes:
   - POST
   request:
     method: POST
+# save_dm_settings clear-sensitive-key branch (app.py 32223-32230): a POST with
+# clear_s3_secret_access_key=1 adds data_management.s3_secret_access_key to clear_sensitive_keys, so
+# the settings-write loop takes the `_del_app_setting(db, key); continue` path for it instead of
+# storing a value. _del_app_setting on the empty base fixture is a harmless no-op DELETE; the
+# response is the same static "Settings saved" redirect as the base POST, so the golden matches
+# byte-for-byte while the oracle now exercises the clear branch. Go: handlers_forms.go:901-910.
+- id: post__settings_data_management__clear_secret
+  path: /settings/data-management
+  methods:
+  - POST
+  request:
+    method: POST
+    form:
+      clear_s3_secret_access_key: "1"
 # dmsecret profile: SOBS_SETTINGS_ENCRYPTION_KEY set. The POST stores both DM secrets (Fernet-
 # encrypted at rest); the response is the deterministic "Settings saved" redirect. Runs BEFORE the
 # GET below so the GET (same per-profile server) reloads the just-saved secrets.

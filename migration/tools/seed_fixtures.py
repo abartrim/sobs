@@ -5577,6 +5577,34 @@ def seed_aihelpermemcons(db) -> None:
     db.execute("OPTIMIZE TABLE sobs_ai_memories FINAL")
 
 
+def seed_rawspanbig(db) -> None:
+    # One otel_traces span carrying a single ~40 KB ASCII attribute so the masked-payload JSON
+    # exceeds api_raw_span's _RAW_SPAN_MAX_BYTES (32 KB) cap and its truncation branch fires (app.py
+    # 15749-15762): each over-long attribute value is clipped to _ATTR_TRUNCATE=512 chars + "…".
+    # Go handleApiRawSpan already mirrors this (handlers_pathparam.go:175-188) but it was never
+    # byte-verified — no existing case exceeded 32 KB. All-ASCII "A" so the 512 slice is identical
+    # whether sliced by rune or byte; a plain "blob.data" key is non-sensitive, so the masking pass
+    # leaves the value intact and the size threshold is actually crossed. Isolated profile (unique
+    # trace/span ids) — no other golden reads this row.
+    _insert(
+        db,
+        "otel_traces",
+        [
+            {
+                "Timestamp": "2023-06-01 12:00:00.000000",
+                "TraceId": "cccc1111cccc2222cccc3333cccc4444",
+                "SpanId": "cccc000000000001",
+                "ParentSpanId": "",
+                "SpanName": "big-attr-span",
+                "ServiceName": "rawspanbig",
+                "Duration": 1_000_000,
+                "StatusCode": "STATUS_CODE_OK",
+                "SpanAttributes": {"blob.data": "A" * 40000},
+            }
+        ],
+    )
+
+
 PROFILE_SEEDS = {
     "agentrun": seed_agent_run,
     "notif": seed_notif,
@@ -5661,6 +5689,7 @@ PROFILE_SEEDS = {
     "notifydispatch": seed_notifydispatch,  # 3 channels (webhook/slack/push) -> channel /test dispatch SUCCESS path
     "webtraffic": seed_webtraffic,  # client.ip rows -> /api/web-traffic/geo geoip2fast lookup
     "aihelpermemcons": seed_aihelpermemcons,  # prior memory -> non-empty related -> consolidation merge
+    "rawspanbig": seed_rawspanbig,  # 40 KB-attr span -> api_raw_span truncation branch (15749-15762)
 }
 
 

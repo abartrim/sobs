@@ -540,6 +540,9 @@ PROFILES: dict[str, dict[str, str]] = {
     # /api/web-traffic/geo runs the local geoip2fast lookup (_get_geo_db + _geo_lookup_batch) and
     # returns deterministic country totals. No env overlay; no now() (no time-window args).
     "webtraffic": {},
+    # rawspanbig: one span with a ~40 KB attribute so GET /api/traces/span/<id> crosses the 32 KB
+    # cap and renders the truncation branch. No env overlay — just the (isolated) seed.
+    "rawspanbig": {},
     # tagsuggest: seeded otel_logs/otel_traces/hyperdx_sessions + sobs_record_tags + sobs_log_attr_keys
     # so /api/settings/tags/condition-suggestions returns non-empty ranked suggestions for every
     # scope/target/field branch. No env overlay — just the (isolated) seed. All seed rows use the
@@ -1475,6 +1478,7 @@ SEEDED_PROFILES = {
     "webtraffic",
     "aihelpermemcons",
     "aisecret",
+    "rawspanbig",
 }
 
 
