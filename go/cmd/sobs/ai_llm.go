@@ -260,19 +260,6 @@ func (s *server) callLLMChat(req llmRequest) (string, llmStats, error) {
 	return content, st, nil
 }
 
-// callLLMEndpoint is the no-messages wrapper kept for call sites whose prompt construction is not
-// yet ported: it builds a default request from the main ai.* settings (empty messages). Parity is
-// unaffected (the mock ignores the body); at runtime these sites send an under-specified request
-// until their messages are threaded through callLLMChat.
-func (s *server) callLLMEndpoint(endpoint string) (string, llmStats, error) {
-	return s.callLLMChat(llmRequest{
-		endpoint:      endpoint,
-		model:         strings.TrimSpace(s.loadAISetting("ai.model", "")),
-		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
-		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
-	})
-}
-
 // jnInt reads an int from a parsed-JSON object (json.Number-aware).
 func jnInt(o *jsonenc.Object, key string) int {
 	v, _ := o.Get(key)
@@ -452,45 +439,4 @@ func parseChartSpecJSON(raw string) (*jsonenc.Object, string) {
 		return nil, "top-level chart spec must be a JSON object"
 	}
 	return obj, ""
-}
-
-// vannaRefineChartSpec mirrors app.py _vanna_refine_chart_spec: validate the current spec, build
-// the refinement system+user messages (spec + a data sample of up to 20 rows + the user
-// instruction), ask the LLM, and return the re-serialized refined spec.
-func (s *server) vannaRefineChartSpec(endpoint, model, currentSpec, instruction string, columns, sampleRows []any) (string, string) {
-	if endpoint == "" || model == "" {
-		return "", "AI endpoint not configured."
-	}
-	if _, err := parseJSONValue([]byte(currentSpec)); err != nil {
-		return "", "Current chart spec is invalid JSON: " + err.Error()
-	}
-	rows := sampleRows
-	if len(rows) > 20 {
-		rows = rows[:20]
-	}
-	sampleOpts := jsonenc.Options{SortKeys: false, EnsureASCII: false, ItemSep: ",", KeySep: ":"}
-	sampleStr := string(jsonenc.Encode(jsonenc.NewObject().Set("columns", columns).Set("rows", rows), sampleOpts))
-	userMsg := "Current ECharts spec structure:\n" + currentSpec +
-		"\n\nData available (columns + up to 20 sample rows):\n" + sampleStr +
-		"\n\nUser instruction: " + instruction +
-		"\n\nPlease refine the chart spec to fulfill this request. Return only the updated JSON."
-	messages := []any{
-		jsonenc.NewObject().Set("role", "system").Set("content", s.buildChartRefinementPrompt()),
-		jsonenc.NewObject().Set("role", "user").Set("content", userMsg),
-	}
-	content, _, err := s.callLLMChat(llmRequest{
-		endpoint:      endpoint,
-		model:         model,
-		apiKey:        strings.TrimSpace(s.loadAISetting("ai.api_key", "")),
-		thinkingLevel: strings.TrimSpace(s.loadAISetting("ai.thinking_level", "off")),
-		messages:      messages,
-	})
-	if err != nil || content == "" {
-		return "", "LLM did not return a refined chart spec."
-	}
-	parsed, perr := parseChartSpecJSON(content)
-	if parsed != nil {
-		return string(jsonenc.Encode(parsed, dumpsDefault)), ""
-	}
-	return "", "Refined chart spec JSON parse error: " + perr
 }

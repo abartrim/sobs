@@ -1,11 +1,5 @@
 package main
 
-import (
-	"strings"
-
-	"github.com/sobs/sobs/internal/jsonenc"
-)
-
 // ---------------------------------------------------------------------------
 // Error-item helpers unique to the errors view. The shared error-item family
 // (_build_error_item / _extract_structured_error_summary / _try_pretty_json_text /
@@ -73,55 +67,4 @@ func (s *server) getResolvedErrorIDs() map[string]bool {
 		out[cStr(m, "ErrorId")] = true
 	}
 	return out
-}
-
-// loadWorkItemLinksForRefIDsObject mirrors _load_work_item_links_for_ref_ids(db, ref_ids) but
-// returns an ordered *jsonenc.Object. The map[string]any form used by the page handlers lives in
-// handlers_incident.go as loadWorkItemLinksForRefIDs; this ordered variant is retained for any
-// caller that needs deterministic key order. (Currently unreferenced — kept for parity fidelity.)
-func (s *server) loadWorkItemLinksForRefIDsObject(refIDs []string) *jsonenc.Object {
-	result := jsonenc.NewObject()
-	refSet := map[string]bool{}
-	var uniqueRefs []string
-	for _, r := range refIDs {
-		if r != "" && !refSet[r] {
-			refSet[r] = true
-			uniqueRefs = append(uniqueRefs, r)
-		}
-	}
-	if len(uniqueRefs) == 0 {
-		return result
-	}
-	placeholders := make([]string, len(uniqueRefs))
-	params := make([]any, len(uniqueRefs))
-	for i, r := range uniqueRefs {
-		placeholders[i] = "?"
-		params[i] = r
-	}
-	query := "SELECT AnomalyRuleId, IssueUrl, CanonicalIssueUrl, IssueNumber, IssueState " +
-		"FROM sobs_github_work_items FINAL " +
-		"WHERE IsDeleted=0 AND IssueUrl != '' AND AnomalyRuleId IN (" + strings.Join(placeholders, ", ") + ") " +
-		"ORDER BY CreatedAt DESC"
-	res, err := s.db.Execute(query, params...)
-	if err != nil {
-		return result
-	}
-	for _, m := range rowMaps(res) {
-		ref := cStr(m, "AnomalyRuleId")
-		if !refSet[ref] {
-			continue
-		}
-		if _, present := result.Get(ref); present {
-			continue
-		}
-		issueURL := cStr(m, "IssueUrl")
-		if issueURL == "" {
-			issueURL = cStr(m, "CanonicalIssueUrl")
-		}
-		result.Set(ref, jsonenc.NewObject().
-			Set("issue_url", issueURL).
-			Set("issue_number", cInt(m, "IssueNumber")).
-			Set("issue_state", cStr(m, "IssueState")))
-	}
-	return result
 }
