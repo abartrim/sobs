@@ -90,8 +90,9 @@ func (s *server) enqueueWrite(op func() error) error {
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &headerCapture{ResponseWriter: w, req: r, cfg: s.cfg}
 	// Optional auth layers (no-ops unless SOBS_API_KEY / SOBS_BASIC_AUTH_* / SOBS_EXTERNAL_AUTH_URL
-	// are set), written through rec so blocking responses still carry the security headers.
-	if s.enforceAuth(rec, r) {
+	// are set), written through rec so blocking responses still carry the security headers. Routed
+	// through the authGate seam so an alternate build can substitute a different authenticator.
+	if authGate(s, rec, r) {
 		return
 	}
 	s.mux.ServeHTTP(rec, r)
