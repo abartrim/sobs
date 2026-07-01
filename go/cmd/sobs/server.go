@@ -39,7 +39,7 @@ func newServer(cfg config) *server {
 	// fresh process, which clears the global chdb state.
 	var lastErr error
 	for attempt := 0; attempt < 5; attempt++ {
-		db, err := store.Open(cfg.DataDir)
+		db, err := openStore(cfg)
 		if err == nil {
 			s.db = db
 			break
