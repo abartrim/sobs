@@ -308,7 +308,15 @@ jobs:
             .github/cache-key-runtime.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-integration.txt
+        # Retry: the ~157 MB chdb_core wheel download intermittently drops mid-stream (urllib3
+        # IncompleteRead), which pip does not resume; a fresh attempt usually completes and then
+        # caches. Retry up to 3x, then a final attempt whose exit code determines the step result.
+        run: |
+          for attempt in 1 2 3; do
+            pip install -r requirements.txt -r requirements-integration.txt && break
+            echo "::warning::pip install failed (attempt ${attempt}/3); retrying in 5s" && sleep 5
+          done
+          pip install -r requirements.txt -r requirements-integration.txt
 
       - name: Run unit tests with coverage
         run: |
@@ -358,9 +366,15 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install dependencies
+        # Retry: the ~157 MB chdb_core wheel download intermittently drops mid-stream (urllib3
+        # IncompleteRead), which pip does not resume; a fresh attempt usually completes and then
+        # caches. Retry up to 3x, then a final attempt whose exit code determines the step result.
         run: |
-          pip install -r requirements.txt
-          pip install -r requirements-integration.txt
+          for attempt in 1 2 3; do
+            pip install -r requirements.txt -r requirements-integration.txt && break
+            echo "::warning::pip install failed (attempt ${attempt}/3); retrying in 5s" && sleep 5
+          done
+          pip install -r requirements.txt -r requirements-integration.txt
 
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
