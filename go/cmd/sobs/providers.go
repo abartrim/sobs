@@ -1,6 +1,10 @@
 package main
 
-import "github.com/sobs/sobs/internal/store"
+import (
+	"net/http"
+
+	"github.com/sobs/sobs/internal/store"
+)
 
 // Provider seams
 // --------------
@@ -16,4 +20,13 @@ import "github.com/sobs/sobs/internal/store"
 // loop, so any implementation may return a transient error to request a retry.
 var openStore = func(cfg config) (store.DB, error) {
 	return store.Open(cfg.DataDir)
+}
+
+// authGate runs the request auth gate before the router. It returns true when it has fully written
+// a blocking response (401/403/500), in which case ServeHTTP short-circuits; otherwise the request
+// proceeds. The default applies the built-in api-key / basic / external-URL enforcement
+// (s.enforceAuth). An alternate build can reassign it to a provider that authenticates differently
+// (e.g. validating a bearer token) and attaches identity/roles to the request context.
+var authGate = func(s *server, w http.ResponseWriter, r *http.Request) bool {
+	return s.enforceAuth(w, r)
 }
