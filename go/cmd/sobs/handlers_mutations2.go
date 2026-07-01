@@ -488,16 +488,6 @@ func (s *server) githubBackfillMaxReleases() int {
 	return n
 }
 
-// cveInventoryCount counts library-inventory rows across the three _collect_library_inventory
-// tiers (release lockfiles, telemetry.sdk.* attrs, scope name+version). 0 on the fixture.
-func (s *server) cveInventoryCount() int {
-	return s.countRows("SELECT count() FROM sobs_release_artifacts FINAL WHERE ArtifactType='dependencies-lockfile' AND IsDeleted=0") +
-		s.countRows("SELECT count() FROM otel_traces WHERE ResourceAttributes['telemetry.sdk.version'] != ''") +
-		s.countRows("SELECT count() FROM otel_logs WHERE ResourceAttributes['telemetry.sdk.version'] != ''") +
-		s.countRows("SELECT count() FROM otel_traces WHERE ScopeName != '' AND ScopeVersion != ''") +
-		s.countRows("SELECT count() FROM otel_logs WHERE ScopeName != '' AND ScopeVersion != ''")
-}
-
 // POST /api/enrichment/cve/scan — app.py _run_cve_scan. CVE enrichment is enabled by default;
 // with no ai.github_token the GitHub backfill is a no-op (0/0/cap) and persists its bookkeeping
 // settings, and an empty library inventory short-circuits to the zero summary. Manifest-last.

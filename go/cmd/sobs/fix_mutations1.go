@@ -123,10 +123,11 @@ func toJSONObject(m map[string]any) *jsonenc.Object {
 	return o
 }
 
-// vannaRefineChartSpecTL is the thinking-level-aware variant of vannaRefineChartSpec (ai_llm.go):
-// identical behavior, but the caller-supplied thinkingLevel (from the request body) is threaded
-// into the LLM call instead of the stored ai.thinking_level setting — mirroring app.py
-// _vanna_refine_chart_spec(..., thinking_level=thinking_level). On the parity path the AI endpoint
+// vannaRefineChartSpecTL mirrors app.py _vanna_refine_chart_spec(..., thinking_level=thinking_level):
+// validate the current spec, build the refinement system+user messages (spec + a data sample of up
+// to 20 rows + the user instruction), ask the LLM, and return the re-serialized refined spec. The
+// caller-supplied thinkingLevel (from the request body) is threaded into the LLM call instead of the
+// stored ai.thinking_level setting. On the parity path the AI endpoint
 // is the URL-keyed mock which ignores the body, so the canned response is unchanged.
 func (s *server) vannaRefineChartSpecTL(endpoint, model, currentSpec, instruction string, columns, sampleRows []any, thinkingLevel string) (string, string) {
 	if endpoint == "" || model == "" {
