@@ -40,9 +40,22 @@ else
   RUN_CMDS="python migration/tools/run_parity_ci.py"
 fi
 
+# Make the in-container Go build hermetic: the local Dockerfile.parity (unlike Dockerfile.parity-ci)
+# does not bake `go mod download`, so a cold build fetches every module from proxy.golang.org — slow
+# and flaky over the colima VM's egress (TLS handshake timeouts). Mount the host's populated module
+# cache read-only and set GOPROXY=off/GOFLAGS=-mod=mod so the build reads modules straight from the
+# cache with no network. GOMODCACHE holds platform-independent SOURCE, so a macOS cache builds fine
+# inside the Linux container. Skipped automatically if the host has no Go / empty cache.
+GOMODCACHE_HOST="$(go env GOMODCACHE 2>/dev/null || true)"
+GO_MOUNT=()
+if [[ -n "${GOMODCACHE_HOST}" && -d "${GOMODCACHE_HOST}" ]]; then
+  GO_MOUNT=(-v "${GOMODCACHE_HOST}:/root/go/pkg/mod:ro" -e GOFLAGS=-mod=mod -e GOPROXY=off -e GOSUMDB=off)
+fi
+
 exec docker run --rm \
   -v "${MAIN_ROOT}:/repo" \
   -w "${CONTAINER_WORKDIR}" \
   -e CHDB_LIB_PATH=/repo/.libchdb/libchdb.so \
+  "${GO_MOUNT[@]}" \
   sobs-parity:latest \
   bash -c "set -euo pipefail; ${RUN_CMDS}"

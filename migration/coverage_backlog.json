@@ -1,18 +1,18 @@
 {
-  "total_uncovered": 2892,
-  "summary_pct": "81",
+  "total_uncovered": 2284,
+  "summary_pct": "85",
   "by_bucket": {
     "lifecycle": {
       "functions": 21,
       "uncovered": 212
     },
-    "helper": {
-      "functions": 381,
-      "uncovered": 2254
-    },
     "route": {
-      "functions": 90,
-      "uncovered": 413
+      "functions": 88,
+      "uncovered": 368
+    },
+    "helper": {
+      "functions": 372,
+      "uncovered": 1691
     },
     "module": {
       "functions": 0,
@@ -40,68 +40,11 @@
       ]
     },
     {
-      "function": "_generate",
-      "bucket": "helper",
-      "start": 27807,
-      "end": 28123,
-      "uncovered": 53,
-      "span": 317,
-      "route": null,
-      "missing_sample": [
-        27846,
-        27847,
-        27848,
-        27849,
-        27850,
-        27851,
-        27852,
-        27853
-      ]
-    },
-    {
-      "function": "_call_llm_endpoint",
-      "bucket": "helper",
-      "start": 4615,
-      "end": 4770,
-      "uncovered": 46,
-      "span": 156,
-      "route": null,
-      "missing_sample": [
-        4631,
-        4673,
-        4674,
-        4675,
-        4676,
-        4677,
-        4678,
-        4679
-      ]
-    },
-    {
-      "function": "_github_actions_dependency_rows",
-      "bucket": "helper",
-      "start": 16479,
-      "end": 16629,
-      "uncovered": 43,
-      "span": 151,
-      "route": null,
-      "missing_sample": [
-        16507,
-        16508,
-        16516,
-        16520,
-        16522,
-        16525,
-        16534,
-        16535
-      ]
-    },
-    {
       "function": "ai_helper",
       "bucket": "route",
       "start": 27607,
       "end": 28395,
-      "uncovered": 35,
+      "uncovered": 29,
       "span": 789,
       "route": {
         "path": "/api/ai/helper",
@@ -116,66 +59,9 @@
         27687,
         27692,
         27697,
-        27710,
-        27711,
-        27712
-      ]
-    },
-    {
-      "function": "_choose_github_issue_outcome",
-      "bucket": "helper",
-      "start": 5388,
-      "end": 5646,
-      "uncovered": 33,
-      "span": 259,
-      "route": null,
-      "missing_sample": [
-        5415,
-        5442,
-        5484,
-        5526,
-        5527,
-        5529,
-        5530,
-        5532
-      ]
-    },
-    {
-      "function": "_normalize_generic_ui_action_tool_call",
-      "bucket": "helper",
-      "start": 4399,
-      "end": 4529,
-      "uncovered": 28,
-      "span": 131,
-      "route": null,
-      "missing_sample": [
-        4407,
-        4423,
-        4424,
-        4428,
-        4446,
-        4447,
-        4448,
-        4449
-      ]
-    },
-    {
-      "function": "_geo_lookup_batch",
-      "bucket": "helper",
-      "start": 16194,
-      "end": 16241,
-      "uncovered": 28,
-      "span": 48,
-      "route": null,
-      "missing_sample": [
-        16204,
-        16205,
-        16207,
-        16208,
-        16209,
-        16210,
-        16211,
-        16212
+        27717,
+        27718,
+        27719
       ]
     },
     {
@@ -217,41 +103,22 @@
       ]
     },
     {
-      "function": "_stream_llm_endpoint",
+      "function": "_choose_github_issue_outcome",
       "bucket": "helper",
-      "start": 4773,
-      "end": 4887,
+      "start": 5388,
+      "end": 5646,
       "uncovered": 25,
-      "span": 115,
+      "span": 259,
       "route": null,
       "missing_sample": [
-        4784,
-        4794,
-        4795,
-        4815,
-        4818,
-        4823,
-        4824,
-        4848
-      ]
-    },
-    {
-      "function": "_vanna_generate_named_queries",
-      "bucket": "helper",
-      "start": 29555,
-      "end": 29648,
-      "uncovered": 24,
-      "span": 94,
-      "route": null,
-      "missing_sample": [
-        29574,
-        29610,
-        29614,
-        29615,
-        29621,
-        29628,
-        29629,
-        29630
+        5415,
+        5526,
+        5527,
+        5532,
+        5533,
+        5538,
+        5539,
+        5540
       ]
     },
     {
@@ -271,44 +138,6 @@
         32146,
         32147,
         32150
-      ]
-    },
-    {
-      "function": "_sanitize_value",
-      "bucket": "helper",
-      "start": 4353,
-      "end": 4382,
-      "uncovered": 22,
-      "span": 30,
-      "route": null,
-      "missing_sample": [
-        4355,
-        4357,
-        4359,
-        4363,
-        4365,
-        4366,
-        4367,
-        4368
-      ]
-    },
-    {
-      "function": "_parse_oss_safeguard_reply",
-      "bucket": "helper",
-      "start": 5042,
-      "end": 5092,
-      "uncovered": 22,
-      "span": 51,
-      "route": null,
-      "missing_sample": [
-        5045,
-        5052,
-        5053,
-        5054,
-        5055,
-        5056,
-        5057,
-        5058
       ]
     },
     {
@@ -337,82 +166,6 @@
       ]
     },
     {
-      "function": "_fetch_release_deps_from_github",
-      "bucket": "helper",
-      "start": 16703,
-      "end": 16873,
-      "uncovered": 22,
-      "span": 171,
-      "route": null,
-      "missing_sample": [
-        16716,
-        16717,
-        16718,
-        16728,
-        16729,
-        16730,
-        16767,
-        16769
-      ]
-    },
-    {
-      "function": "_vanna_generate_sql",
-      "bucket": "helper",
-      "start": 29475,
-      "end": 29552,
-      "uncovered": 22,
-      "span": 78,
-      "route": null,
-      "missing_sample": [
-        29492,
-        29501,
-        29503,
-        29506,
-        29507,
-        29508,
-        29509,
-        29510
-      ]
-    },
-    {
-      "function": "_infer_custom_mapping_from_option",
-      "bucket": "helper",
-      "start": 29900,
-      "end": 29927,
-      "uncovered": 22,
-      "span": 28,
-      "route": null,
-      "missing_sample": [
-        29902,
-        29903,
-        29904,
-        29906,
-        29907,
-        29908,
-        29909,
-        29910
-      ]
-    },
-    {
-      "function": "_check_guard_model",
-      "bucket": "helper",
-      "start": 5136,
-      "end": 5233,
-      "uncovered": 21,
-      "span": 98,
-      "route": null,
-      "missing_sample": [
-        5143,
-        5150,
-        5185,
-        5186,
-        5187,
-        5188,
-        5189,
-        5190
-      ]
-    },
-    {
       "function": "_shutdown_db_resources",
       "bucket": "helper",
       "start": 7484,
@@ -432,117 +185,79 @@
       ]
     },
     {
-      "function": "_vanna_execute_named_queries",
+      "function": "_github_actions_dependency_rows",
       "bucket": "helper",
-      "start": 22156,
-      "end": 22210,
+      "start": 16479,
+      "end": 16629,
       "uncovered": 21,
-      "span": 55,
+      "span": 151,
       "route": null,
       "missing_sample": [
-        22170,
-        22171,
-        22172,
-        22173,
-        22174,
-        22176,
-        22177,
-        22178
+        16507,
+        16508,
+        16516,
+        16520,
+        16522,
+        16525,
+        16534,
+        16535
       ]
     },
     {
-      "function": "_create_github_issue_record",
+      "function": "_generate",
       "bucket": "helper",
-      "start": 6380,
-      "end": 6435,
+      "start": 27807,
+      "end": 28123,
       "uncovered": 20,
-      "span": 56,
+      "span": 317,
       "route": null,
       "missing_sample": [
-        6390,
-        6393,
-        6394,
-        6395,
-        6397,
-        6421,
-        6422,
-        6423
+        27910,
+        27911,
+        27912,
+        27913,
+        27914,
+        27915,
+        27923,
+        27945
       ]
     },
     {
-      "function": "_build_ai_trace_turn_cards",
+      "function": "_stream_llm_endpoint",
       "bucket": "helper",
-      "start": 8506,
-      "end": 8644,
-      "uncovered": 20,
-      "span": 139,
-      "route": null,
-      "missing_sample": [
-        8545,
-        8547,
-        8549,
-        8551,
-        8555,
-        8583,
-        8585,
-        8587
-      ]
-    },
-    {
-      "function": "_vanna_generate_chart_spec",
-      "bucket": "helper",
-      "start": 29788,
-      "end": 29889,
-      "uncovered": 20,
-      "span": 102,
-      "route": null,
-      "missing_sample": [
-        29807,
-        29815,
-        29831,
-        29833,
-        29836,
-        29861,
-        29862,
-        29863
-      ]
-    },
-    {
-      "function": "_consolidate_memory_candidates",
-      "bucket": "helper",
-      "start": 3838,
-      "end": 3900,
+      "start": 4773,
+      "end": 4887,
       "uncovered": 19,
-      "span": 63,
+      "span": 115,
       "route": null,
       "missing_sample": [
-        3848,
-        3883,
-        3884,
-        3885,
-        3886,
-        3887,
-        3888,
-        3889
+        4784,
+        4848,
+        4849,
+        4854,
+        4855,
+        4856,
+        4857,
+        4858
       ]
     },
     {
-      "function": "_sync_github_repo_health_once",
+      "function": "_fetch_release_deps_from_github",
       "bucket": "helper",
-      "start": 17255,
-      "end": 17292,
+      "start": 16703,
+      "end": 16873,
       "uncovered": 18,
-      "span": 38,
+      "span": 171,
       "route": null,
       "missing_sample": [
-        17257,
-        17258,
-        17259,
-        17260,
-        17262,
-        17270,
-        17271,
-        17272
+        16716,
+        16717,
+        16718,
+        16728,
+        16729,
+        16730,
+        16767,
+        16769
       ]
     },
     {
@@ -562,44 +277,6 @@
         28501,
         28502,
         28503
-      ]
-    },
-    {
-      "function": "_repair_truncated_in_clause_literals",
-      "bucket": "helper",
-      "start": 29713,
-      "end": 29743,
-      "uncovered": 18,
-      "span": 31,
-      "route": null,
-      "missing_sample": [
-        29722,
-        29723,
-        29724,
-        29725,
-        29727,
-        29728,
-        29729,
-        29731
-      ]
-    },
-    {
-      "function": "_auto_repair_incomplete_cte_sql",
-      "bucket": "helper",
-      "start": 29746,
-      "end": 29785,
-      "uncovered": 18,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        29758,
-        29763,
-        29764,
-        29765,
-        29767,
-        29768,
-        29769,
-        29771
       ]
     },
     {
@@ -641,63 +318,6 @@
       ]
     },
     {
-      "function": "_verify_rum_asset_signature",
-      "bucket": "helper",
-      "start": 7706,
-      "end": 7745,
-      "uncovered": 17,
-      "span": 40,
-      "route": null,
-      "missing_sample": [
-        7718,
-        7719,
-        7720,
-        7721,
-        7723,
-        7724,
-        7725,
-        7726
-      ]
-    },
-    {
-      "function": "_summarize_ai_tool_action",
-      "bucket": "helper",
-      "start": 8486,
-      "end": 8503,
-      "uncovered": 17,
-      "span": 18,
-      "route": null,
-      "missing_sample": [
-        8487,
-        8488,
-        8489,
-        8490,
-        8491,
-        8492,
-        8493,
-        8494
-      ]
-    },
-    {
-      "function": "_handle_browser_context_delta",
-      "bucket": "helper",
-      "start": 9961,
-      "end": 10005,
-      "uncovered": 17,
-      "span": 45,
-      "route": null,
-      "missing_sample": [
-        9977,
-        9979,
-        9980,
-        9985,
-        9987,
-        9988,
-        9989,
-        9992
-      ]
-    },
-    {
       "function": "_generate",
       "bucket": "helper",
       "start": 24481,
@@ -714,101 +334,6 @@
         24486,
         24487,
         24488
-      ]
-    },
-    {
-      "function": "_vanna_refine_chart_spec",
-      "bucket": "helper",
-      "start": 30015,
-      "end": 30086,
-      "uncovered": 17,
-      "span": 72,
-      "route": null,
-      "missing_sample": [
-        30032,
-        30037,
-        30038,
-        30063,
-        30064,
-        30065,
-        30066,
-        30072
-      ]
-    },
-    {
-      "function": "_update_github_issue_record",
-      "bucket": "helper",
-      "start": 32994,
-      "end": 33047,
-      "uncovered": 17,
-      "span": 54,
-      "route": null,
-      "missing_sample": [
-        33006,
-        33009,
-        33033,
-        33034,
-        33035,
-        33036,
-        33037,
-        33038
-      ]
-    },
-    {
-      "function": "_embedding_from_json",
-      "bucket": "helper",
-      "start": 3650,
-      "end": 3666,
-      "uncovered": 16,
-      "span": 17,
-      "route": null,
-      "missing_sample": [
-        3651,
-        3652,
-        3653,
-        3654,
-        3655,
-        3656,
-        3657,
-        3658
-      ]
-    },
-    {
-      "function": "_proto_metrics_to_events",
-      "bucket": "helper",
-      "start": 9266,
-      "end": 9367,
-      "uncovered": 16,
-      "span": 102,
-      "route": null,
-      "missing_sample": [
-        9302,
-        9303,
-        9304,
-        9305,
-        9306,
-        9307,
-        9308,
-        9324
-      ]
-    },
-    {
-      "function": "_get_geo_db",
-      "bucket": "helper",
-      "start": 16172,
-      "end": 16191,
-      "uncovered": 16,
-      "span": 20,
-      "route": null,
-      "missing_sample": [
-        16175,
-        16176,
-        16177,
-        16178,
-        16179,
-        16180,
-        16181,
-        16183
       ]
     },
     {
@@ -834,126 +359,6 @@
         23399,
         23400,
         23401
-      ]
-    },
-    {
-      "function": "_collect_anomaly_agent_events",
-      "bucket": "helper",
-      "start": 25351,
-      "end": 25395,
-      "uncovered": 16,
-      "span": 45,
-      "route": null,
-      "missing_sample": [
-        25363,
-        25364,
-        25376,
-        25377,
-        25378,
-        25379,
-        25380,
-        25381
-      ]
-    },
-    {
-      "function": "api_query_run",
-      "bucket": "route",
-      "start": 30511,
-      "end": 30765,
-      "uncovered": 16,
-      "span": 255,
-      "route": {
-        "path": "/api/query/run",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        30580,
-        30581,
-        30634,
-        30635,
-        30636,
-        30647,
-        30648,
-        30649
-      ]
-    },
-    {
-      "function": "_decrypt_secret_value",
-      "bucket": "helper",
-      "start": 593,
-      "end": 613,
-      "uncovered": 15,
-      "span": 21,
-      "route": null,
-      "missing_sample": [
-        598,
-        599,
-        600,
-        601,
-        602,
-        603,
-        605,
-        606
-      ]
-    },
-    {
-      "function": "_resolve_template_role_indices",
-      "bucket": "helper",
-      "start": 20332,
-      "end": 20381,
-      "uncovered": 15,
-      "span": 50,
-      "route": null,
-      "missing_sample": [
-        20352,
-        20363,
-        20364,
-        20365,
-        20366,
-        20367,
-        20368,
-        20370
-      ]
-    },
-    {
-      "function": "_format_drilldown_time",
-      "bucket": "helper",
-      "start": 20751,
-      "end": 20774,
-      "uncovered": 15,
-      "span": 24,
-      "route": null,
-      "missing_sample": [
-        20757,
-        20758,
-        20759,
-        20761,
-        20762,
-        20763,
-        20764,
-        20765
-      ]
-    },
-    {
-      "function": "_infer_query_field_types",
-      "bucket": "helper",
-      "start": 30092,
-      "end": 30123,
-      "uncovered": 15,
-      "span": 32,
-      "route": null,
-      "missing_sample": [
-        30102,
-        30104,
-        30107,
-        30108,
-        30110,
-        30111,
-        30112,
-        30113
       ]
     },
     {
@@ -995,31 +400,6 @@
       ]
     },
     {
-      "function": "ingest_rum_asset",
-      "bucket": "route",
-      "start": 9699,
-      "end": 9756,
-      "uncovered": 14,
-      "span": 58,
-      "route": {
-        "path": "/v1/rum/assets",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        9706,
-        9708,
-        9721,
-        9723,
-        9724,
-        9725,
-        9726,
-        9727
-      ]
-    },
-    {
       "function": "_collect_library_inventory",
       "bucket": "helper",
       "start": 16876,
@@ -1055,6 +435,25 @@
         32094,
         32095,
         32097
+      ]
+    },
+    {
+      "function": "_embedding_from_json",
+      "bucket": "helper",
+      "start": 3650,
+      "end": 3666,
+      "uncovered": 13,
+      "span": 17,
+      "route": null,
+      "missing_sample": [
+        3654,
+        3655,
+        3656,
+        3657,
+        3658,
+        3659,
+        3660,
+        3661
       ]
     },
     {
@@ -1112,6 +511,25 @@
         9090,
         9091,
         9092
+      ]
+    },
+    {
+      "function": "_vanna_refine_chart_spec",
+      "bucket": "helper",
+      "start": 30015,
+      "end": 30086,
+      "uncovered": 13,
+      "span": 72,
+      "route": null,
+      "missing_sample": [
+        30032,
+        30037,
+        30038,
+        30063,
+        30064,
+        30065,
+        30066,
+        30080
       ]
     },
     {
@@ -1210,25 +628,6 @@
       ]
     },
     {
-      "function": "_vanna_validate_and_execute_with_repair",
-      "bucket": "helper",
-      "start": 22071,
-      "end": 22153,
-      "uncovered": 12,
-      "span": 83,
-      "route": null,
-      "missing_sample": [
-        22094,
-        22095,
-        22096,
-        22113,
-        22118,
-        22119,
-        22129,
-        22130
-      ]
-    },
-    {
       "function": "_validate_chdb_startup_configuration",
       "bucket": "helper",
       "start": 1909,
@@ -1305,6 +704,25 @@
       ]
     },
     {
+      "function": "_create_github_issue_record",
+      "bucket": "helper",
+      "start": 6380,
+      "end": 6435,
+      "uncovered": 11,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        6390,
+        6393,
+        6394,
+        6395,
+        6397,
+        6427,
+        6428,
+        6430
+      ]
+    },
+    {
       "function": "_dedupe_system_input_messages",
       "bucket": "helper",
       "start": 8450,
@@ -1340,44 +758,6 @@
         32942,
         32943,
         32944
-      ]
-    },
-    {
-      "function": "_empty_content_hint",
-      "bucket": "helper",
-      "start": 4637,
-      "end": 4647,
-      "uncovered": 10,
-      "span": 11,
-      "route": null,
-      "missing_sample": [
-        4638,
-        4639,
-        4640,
-        4641,
-        4642,
-        4643,
-        4644,
-        4645
-      ]
-    },
-    {
-      "function": "_parse_guard_reply",
-      "bucket": "helper",
-      "start": 5009,
-      "end": 5039,
-      "uncovered": 10,
-      "span": 31,
-      "route": null,
-      "missing_sample": [
-        5013,
-        5024,
-        5025,
-        5027,
-        5028,
-        5029,
-        5030,
-        5031
       ]
     },
     {
@@ -1634,6 +1014,25 @@
       ]
     },
     {
+      "function": "_normalize_generic_ui_action_tool_call",
+      "bucket": "helper",
+      "start": 4399,
+      "end": 4529,
+      "uncovered": 9,
+      "span": 131,
+      "route": null,
+      "missing_sample": [
+        4479,
+        4480,
+        4483,
+        4484,
+        4485,
+        4487,
+        4488,
+        4489
+      ]
+    },
+    {
       "function": "_seed_app_release_registry_from_env",
       "bucket": "helper",
       "start": 8935,
@@ -1691,25 +1090,6 @@
       ]
     },
     {
-      "function": "_github_actions_snapshot_name",
-      "bucket": "helper",
-      "start": 16467,
-      "end": 16476,
-      "uncovered": 9,
-      "span": 10,
-      "route": null,
-      "missing_sample": [
-        16468,
-        16469,
-        16470,
-        16471,
-        16472,
-        16473,
-        16474,
-        16475
-      ]
-    },
-    {
       "function": "_cve_scanner_loop",
       "bucket": "lifecycle",
       "start": 17227,
@@ -1751,6 +1131,25 @@
         17579,
         17581,
         17632
+      ]
+    },
+    {
+      "function": "_vanna_validate_and_execute_with_repair",
+      "bucket": "helper",
+      "start": 22071,
+      "end": 22153,
+      "uncovered": 9,
+      "span": 83,
+      "route": null,
+      "missing_sample": [
+        22113,
+        22118,
+        22119,
+        22129,
+        22130,
+        22131,
+        22147,
+        22148
       ]
     },
     {
@@ -1830,28 +1229,22 @@
       ]
     },
     {
-      "function": "check_notifications",
-      "bucket": "route",
-      "start": 26341,
-      "end": 26447,
+      "function": "_vanna_generate_chart_spec",
+      "bucket": "helper",
+      "start": 29788,
+      "end": 29889,
       "uncovered": 9,
-      "span": 107,
-      "route": {
-        "path": "/api/notifications/check",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
+      "span": 102,
+      "route": null,
       "missing_sample": [
-        26357,
-        26358,
-        26359,
-        26384,
-        26385,
-        26408,
-        26415,
-        26433
+        29807,
+        29815,
+        29861,
+        29862,
+        29863,
+        29864,
+        29869,
+        29880
       ]
     },
     {
@@ -1896,6 +1289,25 @@
         515,
         516,
         517
+      ]
+    },
+    {
+      "function": "_decrypt_secret_value",
+      "bucket": "helper",
+      "start": 593,
+      "end": 613,
+      "uncovered": 8,
+      "span": 21,
+      "route": null,
+      "missing_sample": [
+        599,
+        600,
+        608,
+        609,
+        610,
+        611,
+        612,
+        613
       ]
     },
     {
@@ -1972,6 +1384,25 @@
         4279,
         4280,
         4281
+      ]
+    },
+    {
+      "function": "_parse_guard_reply",
+      "bucket": "helper",
+      "start": 5009,
+      "end": 5039,
+      "uncovered": 8,
+      "span": 31,
+      "route": null,
+      "missing_sample": [
+        5013,
+        5027,
+        5028,
+        5029,
+        5030,
+        5031,
+        5033,
+        5038
       ]
     },
     {
@@ -2114,6 +1545,44 @@
       ]
     },
     {
+      "function": "_get_geo_db",
+      "bucket": "helper",
+      "start": 16172,
+      "end": 16191,
+      "uncovered": 8,
+      "span": 20,
+      "route": null,
+      "missing_sample": [
+        16176,
+        16179,
+        16185,
+        16186,
+        16187,
+        16188,
+        16189,
+        16190
+      ]
+    },
+    {
+      "function": "_geo_lookup_batch",
+      "bucket": "helper",
+      "start": 16194,
+      "end": 16241,
+      "uncovered": 8,
+      "span": 48,
+      "route": null,
+      "missing_sample": [
+        16211,
+        16213,
+        16214,
+        16219,
+        16231,
+        16232,
+        16233,
+        16237
+      ]
+    },
+    {
       "function": "_run_cve_scan",
       "bucket": "lifecycle",
       "start": 17122,
@@ -2152,22 +1621,22 @@
       ]
     },
     {
-      "function": "_normalize_chart_spec",
+      "function": "_format_drilldown_time",
       "bucket": "helper",
-      "start": 19847,
-      "end": 19911,
+      "start": 20751,
+      "end": 20774,
       "uncovered": 8,
-      "span": 65,
+      "span": 24,
       "route": null,
       "missing_sample": [
-        19853,
-        19887,
-        19888,
-        19889,
-        19890,
-        19900,
-        19905,
-        19907
+        20759,
+        20763,
+        20764,
+        20765,
+        20766,
+        20767,
+        20768,
+        20771
       ]
     },
     {
@@ -2250,6 +1719,25 @@
         29705,
         29706,
         29709
+      ]
+    },
+    {
+      "function": "_update_github_issue_record",
+      "bucket": "helper",
+      "start": 32994,
+      "end": 33047,
+      "uncovered": 8,
+      "span": 54,
+      "route": null,
+      "missing_sample": [
+        33006,
+        33009,
+        33039,
+        33040,
+        33042,
+        33045,
+        33046,
+        33047
       ]
     },
     {
@@ -2393,24 +1881,6 @@
       ]
     },
     {
-      "function": "_semantic_memory_matches",
-      "bucket": "helper",
-      "start": 3787,
-      "end": 3812,
-      "uncovered": 7,
-      "span": 26,
-      "route": null,
-      "missing_sample": [
-        3797,
-        3798,
-        3799,
-        3800,
-        3801,
-        3802,
-        3803
-      ]
-    },
-    {
       "function": "_load_recent_chat_turns",
       "bucket": "helper",
       "start": 3974,
@@ -2429,6 +1899,24 @@
       ]
     },
     {
+      "function": "_sanitize_value",
+      "bucket": "helper",
+      "start": 4353,
+      "end": 4382,
+      "uncovered": 7,
+      "span": 30,
+      "route": null,
+      "missing_sample": [
+        4355,
+        4359,
+        4363,
+        4369,
+        4372,
+        4379,
+        4382
+      ]
+    },
+    {
       "function": "_coerce_llm_content",
       "bucket": "helper",
       "start": 4588,
@@ -2444,6 +1932,24 @@
         4596,
         4597,
         4598
+      ]
+    },
+    {
+      "function": "_call_llm_endpoint",
+      "bucket": "helper",
+      "start": 4615,
+      "end": 4770,
+      "uncovered": 7,
+      "span": 156,
+      "route": null,
+      "missing_sample": [
+        4631,
+        4684,
+        4710,
+        4717,
+        4751,
+        4752,
+        4753
       ]
     },
     {
@@ -2579,30 +2085,6 @@
       ]
     },
     {
-      "function": "ai_build_chart_spec",
-      "bucket": "route",
-      "start": 22263,
-      "end": 22431,
-      "uncovered": 7,
-      "span": 169,
-      "route": {
-        "path": "/api/dashboards/spec/ai-build",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        22283,
-        22299,
-        22311,
-        22360,
-        22361,
-        22388,
-        22389
-      ]
-    },
-    {
       "function": "_dispatch_webhook_channel",
       "bucket": "lifecycle",
       "start": 24814,
@@ -2663,6 +2145,30 @@
       ]
     },
     {
+      "function": "check_notifications",
+      "bucket": "route",
+      "start": 26341,
+      "end": 26447,
+      "uncovered": 7,
+      "span": 107,
+      "route": {
+        "path": "/api/notifications/check",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        26357,
+        26358,
+        26359,
+        26384,
+        26385,
+        26433,
+        26434
+      ]
+    },
+    {
       "function": "ai_helper_chats",
       "bucket": "route",
       "start": 27448,
@@ -2684,6 +2190,42 @@
         27487,
         27488,
         27489
+      ]
+    },
+    {
+      "function": "_infer_custom_mapping_from_option",
+      "bucket": "helper",
+      "start": 29900,
+      "end": 29927,
+      "uncovered": 7,
+      "span": 28,
+      "route": null,
+      "missing_sample": [
+        29918,
+        29919,
+        29920,
+        29921,
+        29922,
+        29923,
+        29925
+      ]
+    },
+    {
+      "function": "_infer_query_field_types",
+      "bucket": "helper",
+      "start": 30092,
+      "end": 30123,
+      "uncovered": 7,
+      "span": 32,
+      "route": null,
+      "missing_sample": [
+        30102,
+        30104,
+        30108,
+        30114,
+        30116,
+        30118,
+        30120
       ]
     },
     {
@@ -2763,23 +2305,6 @@
       ]
     },
     {
-      "function": "_cosine_similarity",
-      "bucket": "helper",
-      "start": 3637,
-      "end": 3643,
-      "uncovered": 6,
-      "span": 7,
-      "route": null,
-      "missing_sample": [
-        3638,
-        3639,
-        3640,
-        3641,
-        3642,
-        3643
-      ]
-    },
-    {
       "function": "_extract_memory_candidates",
       "bucket": "helper",
       "start": 3903,
@@ -2794,23 +2319,6 @@
         3920,
         3924,
         3925
-      ]
-    },
-    {
-      "function": "_helper_tools_for_page",
-      "bucket": "helper",
-      "start": 4239,
-      "end": 4246,
-      "uncovered": 6,
-      "span": 8,
-      "route": null,
-      "missing_sample": [
-        4241,
-        4242,
-        4243,
-        4244,
-        4245,
-        4246
       ]
     },
     {
@@ -3001,23 +2509,6 @@
       ]
     },
     {
-      "function": "_insert_typed_metric_events",
-      "bucket": "helper",
-      "start": 9485,
-      "end": 9528,
-      "uncovered": 6,
-      "span": 44,
-      "route": null,
-      "missing_sample": [
-        9505,
-        9506,
-        9509,
-        9510,
-        9525,
-        9527
-      ]
-    },
-    {
       "function": "_parse_otlp_request",
       "bucket": "helper",
       "start": 9602,
@@ -3055,6 +2546,23 @@
         9852,
         9853,
         9871
+      ]
+    },
+    {
+      "function": "_handle_browser_context_delta",
+      "bucket": "helper",
+      "start": 9961,
+      "end": 10005,
+      "uncovered": 6,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        9987,
+        9988,
+        9989,
+        9993,
+        9994,
+        9995
       ]
     },
     {
@@ -3241,43 +2749,20 @@
       ]
     },
     {
-      "function": "raise_issue_from_user_observation",
-      "bucket": "route",
-      "start": 28547,
-      "end": 28654,
-      "uncovered": 6,
-      "span": 108,
-      "route": {
-        "path": "/api/issues/raise",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        28594,
-        28612,
-        28613,
-        28614,
-        28616,
-        28629
-      ]
-    },
-    {
-      "function": "_repair_chart_spec_json_with_llm",
+      "function": "_vanna_generate_sql",
       "bucket": "helper",
-      "start": 29434,
-      "end": 29472,
+      "start": 29475,
+      "end": 29552,
       "uncovered": 6,
-      "span": 39,
+      "span": 78,
       "route": null,
       "missing_sample": [
-        29444,
-        29464,
-        29465,
-        29466,
-        29467,
-        29472
+        29492,
+        29539,
+        29540,
+        29541,
+        29542,
+        29551
       ]
     },
     {
@@ -3361,6 +2846,22 @@
       ]
     },
     {
+      "function": "_consolidate_memory_candidates",
+      "bucket": "helper",
+      "start": 3838,
+      "end": 3900,
+      "uncovered": 5,
+      "span": 63,
+      "route": null,
+      "missing_sample": [
+        3848,
+        3885,
+        3886,
+        3888,
+        3891
+      ]
+    },
+    {
       "function": "_resolve_endpoint_timeout_seconds",
       "bucket": "helper",
       "start": 5113,
@@ -3393,6 +2894,22 @@
       ]
     },
     {
+      "function": "_check_guard_model",
+      "bucket": "helper",
+      "start": 5136,
+      "end": 5233,
+      "uncovered": 5,
+      "span": 98,
+      "route": null,
+      "missing_sample": [
+        5188,
+        5189,
+        5190,
+        5221,
+        5225
+      ]
+    },
+    {
       "function": "_check_dlp_endpoint",
       "bucket": "helper",
       "start": 5236,
@@ -3406,22 +2923,6 @@
         5254,
         5255,
         5256
-      ]
-    },
-    {
-      "function": "_asset_extension",
-      "bucket": "helper",
-      "start": 7664,
-      "end": 7677,
-      "uncovered": 5,
-      "span": 14,
-      "route": null,
-      "missing_sample": [
-        7665,
-        7666,
-        7667,
-        7668,
-        7677
       ]
     },
     {
@@ -3597,44 +3098,6 @@
       ]
     },
     {
-      "function": "_is_private_ip",
-      "bucket": "helper",
-      "start": 16152,
-      "end": 16158,
-      "uncovered": 5,
-      "span": 7,
-      "route": null,
-      "missing_sample": [
-        16154,
-        16155,
-        16156,
-        16157,
-        16158
-      ]
-    },
-    {
-      "function": "api_web_traffic_geo",
-      "bucket": "route",
-      "start": 17711,
-      "end": 17760,
-      "uncovered": 5,
-      "span": 50,
-      "route": {
-        "path": "/api/web-traffic/geo",
-        "methods": [
-          "GET"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        17736,
-        17737,
-        17738,
-        17739,
-        17740
-      ]
-    },
-    {
       "function": "view_work_items",
       "bucket": "route",
       "start": 18361,
@@ -3724,6 +3187,44 @@
         27373,
         27403,
         27404
+      ]
+    },
+    {
+      "function": "raise_issue_from_user_observation",
+      "bucket": "route",
+      "start": 28547,
+      "end": 28654,
+      "uncovered": 5,
+      "span": 108,
+      "route": {
+        "path": "/api/issues/raise",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        28594,
+        28612,
+        28613,
+        28614,
+        28629
+      ]
+    },
+    {
+      "function": "_repair_chart_spec_json_with_llm",
+      "bucket": "helper",
+      "start": 29434,
+      "end": 29472,
+      "uncovered": 5,
+      "span": 39,
+      "route": null,
+      "missing_sample": [
+        29444,
+        29464,
+        29465,
+        29466,
+        29467
       ]
     },
     {
@@ -4172,6 +3673,21 @@
       ]
     },
     {
+      "function": "_normalize_chart_spec",
+      "bucket": "helper",
+      "start": 19847,
+      "end": 19911,
+      "uncovered": 4,
+      "span": 65,
+      "route": null,
+      "missing_sample": [
+        19853,
+        19900,
+        19905,
+        19907
+      ]
+    },
+    {
       "function": "_compile_chart_spec",
       "bucket": "helper",
       "start": 20296,
@@ -4184,6 +3700,21 @@
         20314,
         20321,
         20327
+      ]
+    },
+    {
+      "function": "_resolve_template_role_indices",
+      "bucket": "helper",
+      "start": 20332,
+      "end": 20381,
+      "uncovered": 4,
+      "span": 50,
+      "route": null,
+      "missing_sample": [
+        20352,
+        20366,
+        20368,
+        20379
       ]
     },
     {
@@ -4313,18 +3844,33 @@
       ]
     },
     {
-      "function": "_extract_chart_option_placeholders",
+      "function": "_repair_truncated_in_clause_literals",
       "bucket": "helper",
-      "start": 29892,
-      "end": 29897,
+      "start": 29713,
+      "end": 29743,
       "uncovered": 4,
-      "span": 6,
+      "span": 31,
       "route": null,
       "missing_sample": [
-        29894,
-        29895,
-        29896,
-        29897
+        29725,
+        29729,
+        29735,
+        29741
+      ]
+    },
+    {
+      "function": "_auto_repair_incomplete_cte_sql",
+      "bucket": "helper",
+      "start": 29746,
+      "end": 29785,
+      "uncovered": 4,
+      "span": 40,
+      "route": null,
+      "missing_sample": [
+        29758,
+        29765,
+        29769,
+        29776
       ]
     },
     {
@@ -4406,42 +3952,6 @@
         32968,
         32979,
         32980
-      ]
-    },
-    {
-      "function": "_create_or_update_onboarding_issue",
-      "bucket": "helper",
-      "start": 33050,
-      "end": 33105,
-      "uncovered": 4,
-      "span": 56,
-      "route": null,
-      "missing_sample": [
-        33072,
-        33092,
-        33097,
-        33098
-      ]
-    },
-    {
-      "function": "api_onboarding_create_issues",
-      "bucket": "route",
-      "start": 33738,
-      "end": 33930,
-      "uncovered": 4,
-      "span": 193,
-      "route": {
-        "path": "/api/onboarding/create-issues",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        33838,
-        33848,
-        33889,
-        33899
       ]
     },
     {
@@ -4568,6 +4078,20 @@
         4556,
         4565,
         4569
+      ]
+    },
+    {
+      "function": "_parse_oss_safeguard_reply",
+      "bucket": "helper",
+      "start": 5042,
+      "end": 5092,
+      "uncovered": 3,
+      "span": 51,
+      "route": null,
+      "missing_sample": [
+        5045,
+        5059,
+        5060
       ]
     },
     {
@@ -4841,6 +4365,20 @@
       ]
     },
     {
+      "function": "_sync_github_repo_health_once",
+      "bucket": "helper",
+      "start": 17255,
+      "end": 17292,
+      "uncovered": 3,
+      "span": 38,
+      "route": null,
+      "missing_sample": [
+        17260,
+        17281,
+        17282
+      ]
+    },
+    {
       "function": "_startup_enrichment",
       "bucket": "lifecycle",
       "start": 17296,
@@ -5056,6 +4594,40 @@
         21925,
         21926,
         21927
+      ]
+    },
+    {
+      "function": "_vanna_execute_named_queries",
+      "bucket": "helper",
+      "start": 22156,
+      "end": 22210,
+      "uncovered": 3,
+      "span": 55,
+      "route": null,
+      "missing_sample": [
+        22174,
+        22193,
+        22194
+      ]
+    },
+    {
+      "function": "ai_build_chart_spec",
+      "bucket": "route",
+      "start": 22263,
+      "end": 22431,
+      "uncovered": 3,
+      "span": 169,
+      "route": {
+        "path": "/api/dashboards/spec/ai-build",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        22283,
+        22299,
+        22311
       ]
     },
     {
@@ -5295,20 +4867,6 @@
       ]
     },
     {
-      "function": "_check_table_refs",
-      "bucket": "helper",
-      "start": 28928,
-      "end": 28971,
-      "uncovered": 3,
-      "span": 44,
-      "route": null,
-      "missing_sample": [
-        28953,
-        28961,
-        28965
-      ]
-    },
-    {
       "function": "get_table_ddl",
       "bucket": "helper",
       "start": 29044,
@@ -5337,6 +4895,20 @@
       ]
     },
     {
+      "function": "_vanna_generate_named_queries",
+      "bucket": "helper",
+      "start": 29555,
+      "end": 29648,
+      "uncovered": 3,
+      "span": 94,
+      "route": null,
+      "missing_sample": [
+        29574,
+        29610,
+        29630
+      ]
+    },
+    {
       "function": "_load_chart_types_catalog",
       "bucket": "helper",
       "start": 29950,
@@ -5348,6 +4920,26 @@
         29962,
         29963,
         29964
+      ]
+    },
+    {
+      "function": "api_query_run",
+      "bucket": "route",
+      "start": 30511,
+      "end": 30765,
+      "uncovered": 3,
+      "span": 255,
+      "route": {
+        "path": "/api/query/run",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        30580,
+        30581,
+        30726
       ]
     },
     {
@@ -5410,6 +5002,40 @@
         32855,
         32858,
         32859
+      ]
+    },
+    {
+      "function": "_create_or_update_onboarding_issue",
+      "bucket": "helper",
+      "start": 33050,
+      "end": 33105,
+      "uncovered": 3,
+      "span": 56,
+      "route": null,
+      "missing_sample": [
+        33072,
+        33097,
+        33098
+      ]
+    },
+    {
+      "function": "api_onboarding_create_issues",
+      "bucket": "route",
+      "start": 33738,
+      "end": 33930,
+      "uncovered": 3,
+      "span": 193,
+      "route": {
+        "path": "/api/onboarding/create-issues",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        33848,
+        33889,
+        33899
       ]
     },
     {
@@ -5582,6 +5208,19 @@
       ]
     },
     {
+      "function": "_cosine_similarity",
+      "bucket": "helper",
+      "start": 3637,
+      "end": 3643,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        3639,
+        3642
+      ]
+    },
+    {
       "function": "_extract_assistant_meta",
       "bucket": "helper",
       "start": 3669,
@@ -5608,16 +5247,16 @@
       ]
     },
     {
-      "function": "_is_benign_observability_question",
+      "function": "_helper_tools_for_page",
       "bucket": "helper",
-      "start": 4899,
-      "end": 4909,
+      "start": 4239,
+      "end": 4246,
       "uncovered": 2,
-      "span": 11,
+      "span": 8,
       "route": null,
       "missing_sample": [
-        4902,
-        4908
+        4243,
+        4245
       ]
     },
     {
@@ -5686,6 +5325,19 @@
       ]
     },
     {
+      "function": "_asset_extension",
+      "bucket": "helper",
+      "start": 7664,
+      "end": 7677,
+      "uncovered": 2,
+      "span": 14,
+      "route": null,
+      "missing_sample": [
+        7668,
+        7677
+      ]
+    },
+    {
       "function": "_ns_to_iso",
       "bucket": "helper",
       "start": 7951,
@@ -5751,6 +5403,19 @@
       ]
     },
     {
+      "function": "_build_ai_trace_turn_cards",
+      "bucket": "helper",
+      "start": 8506,
+      "end": 8644,
+      "uncovered": 2,
+      "span": 139,
+      "route": null,
+      "missing_sample": [
+        8551,
+        8555
+      ]
+    },
+    {
       "function": "_trace_status_code",
       "bucket": "helper",
       "start": 8686,
@@ -5787,6 +5452,25 @@
       "missing_sample": [
         9437,
         9438
+      ]
+    },
+    {
+      "function": "ingest_rum_asset",
+      "bucket": "route",
+      "start": 9699,
+      "end": 9756,
+      "uncovered": 2,
+      "span": 58,
+      "route": {
+        "path": "/v1/rum/assets",
+        "methods": [
+          "POST"
+        ],
+        "decorator": "route"
+      },
+      "missing_sample": [
+        9706,
+        9708
       ]
     },
     {
@@ -6016,6 +5700,19 @@
       ]
     },
     {
+      "function": "_is_private_ip",
+      "bucket": "helper",
+      "start": 16152,
+      "end": 16158,
+      "uncovered": 2,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        16157,
+        16158
+      ]
+    },
+    {
       "function": "_inventory_scope_ecosystem",
       "bucket": "helper",
       "start": 16267,
@@ -6052,6 +5749,19 @@
       "missing_sample": [
         16443,
         16447
+      ]
+    },
+    {
+      "function": "_github_actions_snapshot_name",
+      "bucket": "helper",
+      "start": 16467,
+      "end": 16476,
+      "uncovered": 2,
+      "span": 10,
+      "route": null,
+      "missing_sample": [
+        16470,
+        16473
       ]
     },
     {
@@ -6440,19 +6150,6 @@
       ]
     },
     {
-      "function": "_normalize_agent_trigger_state",
-      "bucket": "helper",
-      "start": 25335,
-      "end": 25341,
-      "uncovered": 2,
-      "span": 7,
-      "route": null,
-      "missing_sample": [
-        25338,
-        25341
-      ]
-    },
-    {
       "function": "_collect_tag_rule_agent_events",
       "bucket": "helper",
       "start": 25398,
@@ -6610,6 +6307,19 @@
       "missing_sample": [
         27689,
         27690
+      ]
+    },
+    {
+      "function": "_check_table_refs",
+      "bucket": "helper",
+      "start": 28928,
+      "end": 28971,
+      "uncovered": 2,
+      "span": 44,
+      "route": null,
+      "missing_sample": [
+        28961,
+        28965
       ]
     },
     {
@@ -6970,15 +6680,15 @@
       ]
     },
     {
-      "function": "_load_chat_memories",
+      "function": "_semantic_memory_matches",
       "bucket": "helper",
-      "start": 3767,
-      "end": 3784,
+      "start": 3787,
+      "end": 3812,
       "uncovered": 1,
-      "span": 18,
+      "span": 26,
       "route": null,
       "missing_sample": [
-        3775
+        3802
       ]
     },
     {
@@ -7018,15 +6728,27 @@
       ]
     },
     {
-      "function": "_heuristic_guard_check",
+      "function": "_empty_content_hint",
       "bucket": "helper",
-      "start": 4890,
-      "end": 4896,
+      "start": 4637,
+      "end": 4647,
       "uncovered": 1,
-      "span": 7,
+      "span": 11,
       "route": null,
       "missing_sample": [
-        4895
+        4644
+      ]
+    },
+    {
+      "function": "_is_benign_observability_question",
+      "bucket": "helper",
+      "start": 4899,
+      "end": 4909,
+      "uncovered": 1,
+      "span": 11,
+      "route": null,
+      "missing_sample": [
+        4902
       ]
     },
     {
@@ -7174,30 +6896,6 @@
       ]
     },
     {
-      "function": "_rum_asset_signature_payload",
-      "bucket": "helper",
-      "start": 7680,
-      "end": 7699,
-      "uncovered": 1,
-      "span": 20,
-      "route": null,
-      "missing_sample": [
-        7689
-      ]
-    },
-    {
-      "function": "_rum_asset_signature",
-      "bucket": "helper",
-      "start": 7702,
-      "end": 7703,
-      "uncovered": 1,
-      "span": 2,
-      "route": null,
-      "missing_sample": [
-        7703
-      ]
-    },
-    {
       "function": "_rum_b64url_decode",
       "bucket": "helper",
       "start": 7752,
@@ -7282,18 +6980,6 @@
       ]
     },
     {
-      "function": "_string_attr_truthy",
-      "bucket": "helper",
-      "start": 8470,
-      "end": 8471,
-      "uncovered": 1,
-      "span": 2,
-      "route": null,
-      "missing_sample": [
-        8471
-      ]
-    },
-    {
       "function": "_insert_rows_json_each_row",
       "bucket": "helper",
       "start": 8759,
@@ -7339,6 +7025,18 @@
       "route": null,
       "missing_sample": [
         9249
+      ]
+    },
+    {
+      "function": "_proto_metrics_to_events",
+      "bucket": "helper",
+      "start": 9266,
+      "end": 9367,
+      "uncovered": 1,
+      "span": 102,
+      "route": null,
+      "missing_sample": [
+        9353
       ]
     },
     {
@@ -7513,18 +7211,6 @@
       "route": null,
       "missing_sample": [
         14694
-      ]
-    },
-    {
-      "function": "_build_geo_dict",
-      "bucket": "helper",
-      "start": 16161,
-      "end": 16169,
-      "uncovered": 1,
-      "span": 9,
-      "route": null,
-      "missing_sample": [
-        16169
       ]
     },
     {
@@ -7720,6 +7406,30 @@
       ]
     },
     {
+      "function": "_normalize_agent_trigger_state",
+      "bucket": "helper",
+      "start": 25335,
+      "end": 25341,
+      "uncovered": 1,
+      "span": 7,
+      "route": null,
+      "missing_sample": [
+        25341
+      ]
+    },
+    {
+      "function": "_collect_anomaly_agent_events",
+      "bucket": "helper",
+      "start": 25351,
+      "end": 25395,
+      "uncovered": 1,
+      "span": 45,
+      "route": null,
+      "missing_sample": [
+        25384
+      ]
+    },
+    {
       "function": "_get_vapid_private_key_b64",
       "bucket": "helper",
       "start": 25674,
@@ -7846,6 +7556,18 @@
       ]
     },
     {
+      "function": "_extract_chart_option_placeholders",
+      "bucket": "helper",
+      "start": 29892,
+      "end": 29897,
+      "uncovered": 1,
+      "span": 6,
+      "route": null,
+      "missing_sample": [
+        29895
+      ]
+    },
+    {
       "function": "_json_safe_scalar",
       "bucket": "helper",
       "start": 30126,
@@ -7855,24 +7577,6 @@
       "route": null,
       "missing_sample": [
         30129
-      ]
-    },
-    {
-      "function": "api_query_refine_chart",
-      "bucket": "route",
-      "start": 30770,
-      "end": 30869,
-      "uncovered": 1,
-      "span": 100,
-      "route": {
-        "path": "/api/query/refine-chart",
-        "methods": [
-          "POST"
-        ],
-        "decorator": "route"
-      },
-      "missing_sample": [
-        30852
       ]
     },
     {
