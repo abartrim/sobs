@@ -295,40 +295,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-integration.txt
-            pyproject.toml
-            .github/workflows/ci.yml
-            .github/cache-key-runtime.txt
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: Install dependencies
-        # Retry: the ~157 MB chdb_core wheel download intermittently drops mid-stream (urllib3
-        # IncompleteRead), which pip does not resume; a fresh attempt usually completes and then
-        # caches. Retry up to 3x, then a final attempt whose exit code determines the step result.
+      - name: Build the Python CI deps image (chdb + browsers baked into cached layers)
         run: |
-          for attempt in 1 2 3; do
-            pip install -r requirements.txt -r requirements-integration.txt && break
-            echo "::warning::pip install failed (attempt ${attempt}/3); retrying in 5s" && sleep 5
-          done
-          pip install -r requirements.txt -r requirements-integration.txt
+          docker buildx build -f Dockerfile.ci-python \
+            --cache-from type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache \
+            --cache-to type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache,mode=max \
+            --load -t sobs-ci-python:local .
 
-      - name: Run unit tests with coverage
+      - name: Run unit tests with coverage + diff-cover gate
+        # Runs inside the deps image (chdb baked in) against the bind-mounted workspace, so
+        # coverage.xml and .git stay on the shared runner/dind volume for the gate + artifact.
+        # SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise trips
+        # inside the nested dind container and makes memory-limited queries misbehave (the same
+        # flag the parity build and the integration job set).
         run: |
-          echo "SOBS/chDB env snapshot"
-          env | sort | grep -E '^(SOBS_|CHDB_)' || true
-          pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
-            --cov=app --cov=masking --cov=mcp \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
-
-      - name: Diff coverage gate
-        run: diff-cover coverage.xml --compare-branch=origin/main --fail-under=90
+          docker run --rm -e SOBS_CHDB_MAX_SERVER_MB=0 -v "$PWD:/app" -w /app sobs-ci-python:local bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory /app
+            echo "SOBS/chDB env snapshot"; env | sort | grep -E "^(SOBS_|CHDB_)" || true
+            pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
+              --cov=app --cov=masking --cov=mcp \
+              --cov-report=term-missing \
+              --cov-report=xml:coverage.xml
+            diff-cover coverage.xml --compare-branch=origin/main --fail-under=90'
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
@@ -345,51 +346,38 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-integration.txt
-            pyproject.toml
-            .github/workflows/ci.yml
-            .github/cache-key-runtime.txt
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements-integration.txt', '.github/workflows/ci.yml', '.github/cache-key-runtime.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install dependencies
-        # Retry: the ~157 MB chdb_core wheel download intermittently drops mid-stream (urllib3
-        # IncompleteRead), which pip does not resume; a fresh attempt usually completes and then
-        # caches. Retry up to 3x, then a final attempt whose exit code determines the step result.
+      - name: Build the Python CI deps image (chdb + browsers baked into cached layers)
         run: |
-          for attempt in 1 2 3; do
-            pip install -r requirements.txt -r requirements-integration.txt && break
-            echo "::warning::pip install failed (attempt ${attempt}/3); retrying in 5s" && sleep 5
-          done
-          pip install -r requirements.txt -r requirements-integration.txt
-
-      - name: Install Playwright browsers
-        run: playwright install --with-deps chromium
+          docker buildx build -f Dockerfile.ci-python \
+            --cache-from type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache \
+            --cache-to type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache,mode=max \
+            --load -t sobs-ci-python:local .
 
       - name: Run integration tests
-        env:
-          SOBS_UIQA_SEED_TOTAL: "64"
-          SOBS_UIQA_SEED_WORKERS: "8"
-          SOBS_SCREENSHOT_SEED_TOTAL: "240"
-          SOBS_SCREENSHOT_SEED_WORKERS: "24"
-          # Disable the chDB server memory cap in CI. The limit is a production
-          # safeguard for constrained containers; the CI runner has ample RAM and
-          # enforcing it only causes false failures as baseline RSS varies.
-          SOBS_CHDB_MAX_SERVER_MB: "0"
-        run: pytest tests/test_integration.py -v
+        # Runs inside the deps image (chdb + chromium baked in) against the bind-mounted workspace;
+        # tests/screenshots land on the shared runner/dind volume for the artifact upload below.
+        # --shm-size lifts the default 64 MB /dev/shm so headless chromium does not crash.
+        run: |
+          docker run --rm --shm-size=2g \
+            -e SOBS_UIQA_SEED_TOTAL=64 \
+            -e SOBS_UIQA_SEED_WORKERS=8 \
+            -e SOBS_SCREENSHOT_SEED_TOTAL=240 \
+            -e SOBS_SCREENSHOT_SEED_WORKERS=24 \
+            -e SOBS_CHDB_MAX_SERVER_MB=0 \
+            -v "$PWD:/app" -w /app sobs-ci-python:local \
+            pytest tests/test_integration.py -v
 
       - name: Upload screenshots
         if: always()
