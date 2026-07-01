@@ -41,3 +41,32 @@ func TestLoadNotificationChannels(t *testing.T) {
 		t.Fatalf("query error: want empty, got %v", got)
 	}
 }
+
+// loadNotificationChannelsByID builds the id->channel map used by the rule-check path; corpus-
+// unreachable on its error branch. Oracle: app.py _load_notification_channels_by_id.
+func TestLoadNotificationChannelsByID(t *testing.T) {
+	cols := []string{"Id", "Name", "ChannelType", "ConfigJson", "Enabled"}
+	s := &server{db: &storetest.FakeDB{ExecuteFunc: func(string, ...any) (*store.Result, error) {
+		return storetest.Result(cols,
+			[]any{"c1", "Slack", "slack", `{"url":"http://hook"}`, float64(1)},
+			[]any{"c2", "Web", "webhook", "{}", float64(0)},
+		), nil
+	}}}
+	got := s.loadNotificationChannelsByID()
+	if len(got) != 2 {
+		t.Fatalf("want 2 channels, got %d", len(got))
+	}
+	if c := got["c1"]; c.name != "Slack" || c.channelType != "slack" || !c.enabled {
+		t.Fatalf("c1 wrong: %+v", c)
+	}
+	if c := got["c2"]; c.enabled {
+		t.Fatalf("c2 should be disabled: %+v", c)
+	}
+
+	sErr := &server{db: &storetest.FakeDB{ExecuteFunc: func(string, ...any) (*store.Result, error) {
+		return nil, errors.New("boom")
+	}}}
+	if got := sErr.loadNotificationChannelsByID(); len(got) != 0 {
+		t.Fatalf("query error: want empty map, got %v", got)
+	}
+}
