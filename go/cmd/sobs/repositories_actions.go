@@ -152,11 +152,14 @@ func (s *server) repoAddRelease(w http.ResponseWriter, r *http.Request, appID st
 		flashRedirect(w, "warning", "Release version is required", reposURL)
 		return
 	}
-	_, _ = s.insertRowsNormalized("sobs_app_releases", []map[string]any{{
+	if _, err := s.insertRowsNormalized("sobs_app_releases", []map[string]any{{
 		"Id": newUUIDHex(), "AppId": appID, "ReleaseVersion": releaseVersion,
 		"CommitSha": "", "BuildId": "", "Environment": environment, "ReleasedAt": nowISO(),
 		"MetadataJson": "{}", "IsDeleted": 0, "Version": fixedVersionMillis(),
-	}})
+	}}); err != nil {
+		s.dbError(w, err)
+		return
+	}
 	flashRedirect(w, "success", "Release added", reposURL)
 }
 
@@ -176,13 +179,16 @@ func (s *server) repoUpdate(w http.ResponseWriter, r *http.Request, appID string
 	if createdAt == "" {
 		createdAt = nowISO()
 	}
-	_, _ = s.insertRowsNormalized("sobs_apps", []map[string]any{{
+	if _, err := s.insertRowsNormalized("sobs_apps", []map[string]any{{
 		"Id": appID, "Name": cStr(current, "Name"), "Slug": cStr(current, "Slug"),
 		"OwnerTeam": cStr(current, "OwnerTeam"), "RepoUrl": repoURL,
 		"DefaultEnvironment": cStr(current, "DefaultEnvironment"), "Enabled": cInt(current, "Enabled"),
 		"MetadataJson": metadataJSONOr(current), "IsDeleted": 0, "Version": fixedVersionMillis(),
 		"CreatedAt": createdAt, "UpdatedAt": nowISO(),
-	}})
+	}}); err != nil {
+		s.dbError(w, err)
+		return
+	}
 	if setRepoToken && repoToken != "" && owner != "" && repo != "" {
 		s.saveAISetting(githubRepoTokenKey(owner, repo), repoToken)
 	}
@@ -196,13 +202,16 @@ func (s *server) repoDelete(w http.ResponseWriter, appID string, current map[str
 		createdAt = nowISO()
 	}
 	ver := fixedVersionMillis()
-	_, _ = s.insertRowsNormalized("sobs_apps", []map[string]any{{
+	if _, err := s.insertRowsNormalized("sobs_apps", []map[string]any{{
 		"Id": appID, "Name": cStr(current, "Name"), "Slug": cStr(current, "Slug"),
 		"OwnerTeam": cStr(current, "OwnerTeam"), "RepoUrl": cStr(current, "RepoUrl"),
 		"DefaultEnvironment": cStr(current, "DefaultEnvironment"), "Enabled": cInt(current, "Enabled"),
 		"MetadataJson": metadataJSONOr(current), "IsDeleted": 1, "Version": ver,
 		"CreatedAt": createdAt, "UpdatedAt": nowISO(),
-	}})
+	}}); err != nil {
+		s.dbError(w, err)
+		return
+	}
 	if res, err := s.db.Execute("SELECT * FROM sobs_app_releases FINAL WHERE AppId=? AND IsDeleted=0", appID); err == nil {
 		tombstones := []map[string]any{}
 		for _, rel := range rowMaps(res) {
@@ -214,7 +223,10 @@ func (s *server) repoDelete(w http.ResponseWriter, appID string, current map[str
 			})
 		}
 		if len(tombstones) > 0 {
-			_, _ = s.insertRowsNormalized("sobs_app_releases", tombstones)
+			if _, err := s.insertRowsNormalized("sobs_app_releases", tombstones); err != nil {
+				s.dbError(w, err)
+				return
+			}
 		}
 	}
 	flashRedirect(w, "success", "Repository '"+cStr(current, "Name")+"' deleted", reposURL)

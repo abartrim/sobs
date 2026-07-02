@@ -96,7 +96,7 @@ func (s *server) handleSettingsTagsAuto(w http.ResponseWriter, r *http.Request) 
 		rowsToInsert := []map[string]any{}
 		base := fixedVersionMillis()
 		for idx, cv := range limited {
-			c := cv.(map[string]any)
+			c := spanDict(cv)
 			rts := []string{}
 			for _, t := range c["record_types"].([]any) {
 				rts = append(rts, fmt.Sprintf("%v", t))
@@ -227,7 +227,7 @@ func (s *server) handleMetricsRulesDashboardAuto(w http.ResponseWriter, r *http.
 
 		rowsToInsert := []map[string]any{}
 		for idx, cv := range cappedCandidates {
-			c := cv.(map[string]any)
+			c := spanDict(cv)
 			title := mapStr(c, "title")
 			if _, dup := existingTitles[title]; dup {
 				existingCount++
@@ -365,7 +365,7 @@ func (s *server) handleMetricsRulesAutoPreview(w http.ResponseWriter, r *http.Re
 		rowsToInsert := []map[string]any{}
 		base := fixedVersionMillis()
 		for idx, cv := range limited {
-			c := cv.(map[string]any)
+			c := spanDict(cv)
 			sbj := ""
 			if v, ok := c["seasonal_buckets_json"].(string); ok {
 				sbj = v
@@ -3016,16 +3016,16 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 			} else if resolved == "0" {
 				item["resolved"] = false
 			} else {
-				item["resolved"] = resolvedIDs[item["id"].(string)]
+				item["resolved"] = resolvedIDs[toStr(item["id"])]
 			}
 			item["count"] = cInt(row, "Count")
 			fs := cStr(row, "FirstSeen")
 			if fs == "" {
-				fs = item["ts"].(string)
+				fs = toStr(item["ts"])
 			}
 			ls := cStr(row, "LastSeen")
 			if ls == "" {
-				ls = item["ts"].(string)
+				ls = toStr(item["ts"])
 			}
 			item["first_seen"] = fs
 			item["last_seen"] = ls
@@ -3076,7 +3076,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			for i, item := range errors {
-				m := item.(map[string]any)
+				m := spanDict(item)
 				gt := itemGroupTuples[i]
 				traceValues := append([]string{}, traceIDsByGroup[gt]...)
 				primaryTrace := strings.TrimSpace(cStr(m, "trace_id"))
@@ -3148,7 +3148,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 					if res, err := s.db.Execute(detailSQL, detailParams...); err == nil {
 						for _, drow := range rowMaps(res) {
 							detailItem := s.buildErrorItem(drow)
-							detailsByID[detailItem["id"].(string)] = detailItem
+							detailsByID[toStr(detailItem["id"])] = detailItem
 						}
 					}
 				}
@@ -3164,7 +3164,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 					resolvedFlag = resolvedIDs[rowID]
 				}
 				item := buildErrorStubFromNarrow(row, resolvedFlag)
-				if detailItem, ok := detailsByID[item["id"].(string)]; ok {
+				if detailItem, ok := detailsByID[toStr(item["id"])]; ok {
 					detailItem["resolved"] = resolvedFlag
 					item = detailItem
 				}
@@ -3177,7 +3177,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 			if res, err := s.db.Execute(sourceSQL, append(append([]any{}, whereParams...), limit, offset)...); err == nil {
 				for _, row := range rowMaps(res) {
 					item := s.buildErrorItem(row)
-					item["resolved"] = resolvedIDs[item["id"].(string)]
+					item["resolved"] = resolvedIDs[toStr(item["id"])]
 					errors = append(errors, item)
 				}
 			}
@@ -3188,7 +3188,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 
 	refIDs := make([]string, 0, len(errors))
 	for _, e := range errors {
-		refIDs = append(refIDs, e.(map[string]any)["id"].(string))
+		refIDs = append(refIDs, toStr(spanDict(e)["id"]))
 	}
 	workItemLinks := s.loadWorkItemLinksForRefIDs(refIDs)
 

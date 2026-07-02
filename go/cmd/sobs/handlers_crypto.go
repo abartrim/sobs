@@ -26,12 +26,18 @@ func randBytes(n int) []byte {
 func (s *server) handleApiNotificationsVapidKeygen(w http.ResponseWriter, r *http.Request) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		s.errorJSON(w, http.StatusInternalServerError, "VAPID key generation failed")
+		s.errorJSON(w, http.StatusInternalServerError, "failed to generate VAPID keys")
 		return
 	}
 	pubBytes := elliptic.Marshal(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y) // 0x04||X||Y
-	if der, e := x509.MarshalPKCS8PrivateKey(priv); e == nil {
-		_ = s.setAppSetting("vapid_private_key", base64.RawURLEncoding.EncodeToString(der))
+	der, e := x509.MarshalPKCS8PrivateKey(priv)
+	if e != nil {
+		s.errorJSON(w, http.StatusInternalServerError, "failed to generate VAPID keys")
+		return
+	}
+	if err := s.setAppSetting("vapid_private_key", base64.RawURLEncoding.EncodeToString(der)); err != nil {
+		s.errorJSON(w, http.StatusInternalServerError, "failed to generate VAPID keys")
+		return
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().
 		Set("env_override", false).

@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -54,7 +55,27 @@ func quoteLiteral(v any) string {
 	case int64:
 		return strconv.FormatInt(x, 10)
 	case float64:
-		return strconv.FormatFloat(x, 'g', -1, 64)
+		// Non-finite values need explicit handling: strconv.FormatFloat emits the Go
+		// spellings "NaN", "+Inf", "-Inf" verbatim, unquoted. ClickHouse's SQL grammar
+		// does accept these as case-insensitive bareword float literals (verified against
+		// the pinned chdb-core 26.5.x kernel: SELECT NaN / +Inf / -Inf all parse as
+		// Float64 nan/inf/-inf, same as the canonical lowercase spelling) — so this was
+		// not a hard syntax error. But a bareword literal is resolved as an *identifier*
+		// first if a column/alias of that exact name is in scope (e.g. `WHERE nan` against
+		// a column literally named `nan` silently evaluates truthiness instead of the
+		// float literal, with no error at all). Emitting an explicit cast instead of a
+		// bareword sidesteps that identifier-shadowing hazard entirely while remaining
+		// valid ClickHouse syntax.
+		switch {
+		case math.IsNaN(x):
+			return "CAST('nan' AS Float64)"
+		case math.IsInf(x, 1):
+			return "CAST('inf' AS Float64)"
+		case math.IsInf(x, -1):
+			return "CAST('-inf' AS Float64)"
+		default:
+			return strconv.FormatFloat(x, 'g', -1, 64)
+		}
 	case bool:
 		if x {
 			return "1"
