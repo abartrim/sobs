@@ -430,11 +430,19 @@ func (s *server) handleApiDashboardsSpecRender(w http.ResponseWriter, r *http.Re
 // handleApiIssuesRaise is defined in agent_flow.go.
 
 // POST /api/mcp/enabled — app.py(mcp.py) mcp_api_set_enabled: enabled = bool(body.get(
-// "enabled", True)); persists and echoes. (The persist is an unobservable side effect here.)
+// "enabled", True)); persists via _set_app_setting(db, "mcp.enabled", "1"/"0") and echoes.
 func (s *server) handleApiMcpEnabled(w http.ResponseWriter, r *http.Request) {
 	enabled := true
 	if v, ok := bodyMap(r)["enabled"]; ok {
 		enabled = truthy(v)
+	}
+	stored := "0"
+	if enabled {
+		stored = "1"
+	}
+	if err := s.setAppSetting("mcp.enabled", stored); err != nil {
+		s.dbError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, jsonenc.NewObject().Set("enabled", enabled).Set("ok", true))
 }
@@ -578,13 +586,16 @@ func (s *server) handleApiNotificationsAutoGenerate(w http.ResponseWriter, r *ht
 					}
 				}
 			}
-			_, _ = s.insertRowsNormalized("sobs_notification_rules", []map[string]any{{
+			if _, err := s.insertRowsNormalized("sobs_notification_rules", []map[string]any{{
 				"Id": newUUIDv4(), "Name": objGetStr(cand, "name"), "Enabled": 1,
 				"LogicOperator": "any", "ConditionsJson": string(jsonenc.Encode(conditions, dumpsDefault)),
 				"ChannelIds": strings.Join(chIDs, ","), "Severity": objGetStr(cand, "severity"),
 				"CooldownSeconds": 300, "LastFiredAt": "1970-01-01 00:00:00.000",
 				"IsDeleted": 0, "Version": fixedVersionMillis(),
-			}})
+			}}); err != nil {
+				s.dbError(w, err)
+				return
+			}
 			created++
 		}
 		writeJSON(w, http.StatusOK, jsonenc.NewObject().

@@ -517,10 +517,6 @@ func attachDrilldownMetadata(templateID string, drilldown *jsonenc.Object, bindi
 	}
 }
 
-// renderNotImplemented is the sentinel errMsg meaning "this template's render path isn't ported
-// yet" — the caller (render handlers) translates it into a 501 (NOT a fake 400/200).
-const renderNotImplemented = "\x00render-not-implemented\x00"
-
 // numList coerces a binding list to floats (best-effort).
 func numListAt(bindings map[string]any, key string) []any {
 	if v, ok := bindings[key].([]any); ok {
