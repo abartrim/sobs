@@ -344,18 +344,36 @@ func (e *Engine) evalMulDiv(s string, ctx *scope) (any, error) {
 		return q, nil
 	}
 	if l, r, ok := splitTopOp(s, " / "); ok {
-		lv, _ := e.evalMulDiv(l, ctx)
-		rv, _ := e.evalMulDiv(r, ctx)
+		lv, err := e.evalMulDiv(l, ctx)
+		if err != nil {
+			return nil, err
+		}
+		rv, err := e.evalMulDiv(r, ctx)
+		if err != nil {
+			return nil, err
+		}
 		return divValues(lv, rv), nil
 	}
 	if l, r, ok := splitTopOp(s, " * "); ok {
-		lv, _ := e.evalMulDiv(l, ctx)
-		rv, _ := e.evalMulDiv(r, ctx)
+		lv, err := e.evalMulDiv(l, ctx)
+		if err != nil {
+			return nil, err
+		}
+		rv, err := e.evalMulDiv(r, ctx)
+		if err != nil {
+			return nil, err
+		}
 		return mulValues(lv, rv), nil
 	}
 	if l, r, ok := splitTopOp(s, " % "); ok {
-		lv, _ := e.evalMulDiv(l, ctx)
-		rv, _ := e.evalMulDiv(r, ctx)
+		lv, err := e.evalMulDiv(l, ctx)
+		if err != nil {
+			return nil, err
+		}
+		rv, err := e.evalMulDiv(r, ctx)
+		if err != nil {
+			return nil, err
+		}
 		b := toIntVal(rv)
 		if b == 0 {
 			return 0, nil
@@ -885,6 +903,15 @@ func (e *Engine) callMethod(objExpr, method, argstr string, ctx *scope) (any, er
 }
 
 func equalValues(a, b any) bool {
+	// Python numeric equality doesn't distinguish int vs float representation
+	// (1.0 == 1 is True), so when both operands are numeric (int/float64) compare
+	// by value instead of via atomKind+toString, which would see "1.0" != "1" and
+	// int/float64 as different kinds.
+	if af, aok := numFloat(a); aok {
+		if bf, bok := numFloat(b); bok {
+			return af == bf
+		}
+	}
 	return toString(a) == toString(b) && atomKind(a) == atomKind(b)
 }
 
@@ -1349,6 +1376,8 @@ func lengthOf(v any) int {
 		return len(x)
 	case map[string]any:
 		return len(x)
+	case *jsonenc.Object:
+		return x.Len()
 	default:
 		return 0
 	}
