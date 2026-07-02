@@ -378,7 +378,7 @@ const agentMaxIssuesDefault = 5
 
 // countGithubIssuesLastHour mirrors _count_github_issues_last_hour.
 func (s *server) countGithubIssuesLastHour() int {
-	return s.countRows("SELECT count() FROM sobs_agent_runs FINAL WHERE IsDeleted=0 AND GithubIssueUrl != '' " +
+	return s.countRows("SELECT count() AS c FROM sobs_agent_runs FINAL WHERE IsDeleted=0 AND GithubIssueUrl != '' " +
 		"AND CreatedAt >= now() - INTERVAL 1 HOUR")
 }
 
