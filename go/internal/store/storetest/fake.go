@@ -14,6 +14,9 @@ type FakeDB struct {
 	ExecuteFunc func(query string, params ...any) (*store.Result, error)
 	// Inserts records every InsertJSONEachRow call, in order.
 	Inserts []Insert
+	// InsertErr, when set, is returned by every InsertJSONEachRow call instead of success (the
+	// call is still recorded in Inserts first, matching a real driver's partial-write shape).
+	InsertErr error
 	// Closed is set true by Close.
 	Closed bool
 }
@@ -35,6 +38,9 @@ func (f *FakeDB) Execute(query string, params ...any) (*store.Result, error) {
 // InsertJSONEachRow implements store.DB, recording the call and reporting all rows written.
 func (f *FakeDB) InsertJSONEachRow(table string, rows []map[string]any) (int, error) {
 	f.Inserts = append(f.Inserts, Insert{Table: table, Rows: rows})
+	if f.InsertErr != nil {
+		return 0, f.InsertErr
+	}
 	return len(rows), nil
 }
 
