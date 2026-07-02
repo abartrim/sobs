@@ -34,9 +34,10 @@ func newServer(cfg config) *server {
 	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig(), tel: loadTelemetry(), rumClient: loadRumClientConfig(), rumAsset: loadRumAssetConfig(), srcMap: loadSourceMapper()}
 	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
 	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile
-	// boots). A server that lists but can't open chdb would hang every data route, so in parity
-	// mode (SOBS_PARITY) exit after exhausting retries — the harness's boot-retry then re-spawns a
-	// fresh process, which clears the global chdb state.
+	// boots). A server that starts but can't open chdb would panic every route that touches the
+	// store, so exit after exhausting retries — in parity mode (SOBS_PARITY) the harness's
+	// boot-retry then re-spawns a fresh process, which clears the global chdb state; outside
+	// parity mode this is just a normal fail-fast startup failure (see below).
 	var lastErr error
 	for attempt := 0; attempt < 5; attempt++ {
 		db, err := openStore(cfg)
@@ -49,10 +50,16 @@ func newServer(cfg config) *server {
 		time.Sleep(time.Duration(300*(attempt+1)) * time.Millisecond)
 	}
 	if s.db == nil {
-		log.Printf("warning: chdb open failed (%v) — data routes will error", lastErr)
-		if os.Getenv("SOBS_PARITY") == "1" {
-			log.Fatalf("chdb open failed in parity mode: %v", lastErr)
-		}
+		// A nil s.db would panic (or otherwise misbehave) the first time any of the ~60 route
+		// handlers calls s.db.Execute — none of them nil-guard it; only /health/db checks s.db
+		// itself, by design, since its whole job is to report DB health without crashing (see
+		// handleHealthDB). Outside parity mode there is no legitimate reason to keep serving
+		// with no store at all, so fail fast here as soon as the retries are exhausted, the same
+		// way the old parity-only branch already did and the way validateChdbStartup (just below)
+		// already does unconditionally: log and exit non-zero rather than start a server that
+		// cannot do its job. This subsumes the previous "if SOBS_PARITY" special case — both
+		// paths now exit, so it is written once.
+		log.Fatalf("chdb open failed after retries, cannot start: %v", lastErr)
 	}
 	// When SOBS_CHDB_ENCRYPTION_KEY configured an encrypted disk/policy, assert chdb actually
 	// applied it (no-op otherwise). A misapplied config-file would silently fall back to plain disk.
