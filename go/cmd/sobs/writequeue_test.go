@@ -8,7 +8,7 @@ import (
 )
 
 func TestWriteQueueWaitRunsOpSynchronously(t *testing.T) {
-	q := newWriteQueue()
+	q := newDefaultWriteQueue()
 	var ran int32
 	if err := q.enqueue(func() error { atomic.AddInt32(&ran, 1); return nil }, true); err != nil {
 		t.Fatalf("enqueue(wait): %v", err)
@@ -19,7 +19,7 @@ func TestWriteQueueWaitRunsOpSynchronously(t *testing.T) {
 }
 
 func TestWriteQueueWaitPropagatesError(t *testing.T) {
-	q := newWriteQueue()
+	q := newDefaultWriteQueue()
 	sentinel := errors.New("boom")
 	if err := q.enqueue(func() error { return sentinel }, true); !errors.Is(err, sentinel) {
 		t.Errorf("got %v, want the op error", err)
@@ -27,7 +27,7 @@ func TestWriteQueueWaitPropagatesError(t *testing.T) {
 }
 
 func TestWriteQueueAsyncRuns(t *testing.T) {
-	q := newWriteQueue()
+	q := newDefaultWriteQueue()
 	done := make(chan struct{})
 	if err := q.enqueue(func() error { close(done); return nil }, false); err != nil {
 		t.Fatalf("enqueue(async): %v", err)
@@ -63,7 +63,7 @@ func TestWriteQueueDepthNilSafe(t *testing.T) {
 func TestWriteQueueBatchesMultiple(t *testing.T) {
 	t.Setenv("SOBS_WRITE_BATCH_MAX", "8")
 	t.Setenv("SOBS_WRITE_BATCH_WAIT_MS", "50")
-	q := newWriteQueue()
+	q := newDefaultWriteQueue()
 	var ran int32
 	for i := 0; i < 5; i++ {
 		if err := q.enqueue(func() error { atomic.AddInt32(&ran, 1); return nil }, false); err != nil {

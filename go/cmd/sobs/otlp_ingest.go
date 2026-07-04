@@ -62,8 +62,8 @@ func jsonDumpsNoEscBytes(v any) []byte {
 
 // OTLP-JSON ingest. The HTTP response is only {"accepted": <count>}, so the per-record row mapping
 // is faithful but never byte-compared; the parity check verifies the count and a successful insert.
-// (The attr-key tracking + tag-rule application side-effects of the Python inserters are deferred —
-// they feed secondary indexes, not the response.)
+// The attr-key tracking + tag-rule application side-effects of the Python inserters feed secondary
+// indexes, not the response; they're implemented alongside each inserter below (logs/traces).
 
 // otlpAnyValue mirrors _proto_any_value_to_python: unwrap an OTLP AnyValue JSON object.
 func otlpAnyValue(v any) any {

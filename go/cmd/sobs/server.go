@@ -23,7 +23,7 @@ type server struct {
 	db        store.DB
 	sse       *sseBroker
 	auth      authConfig
-	wq        *writeQueue
+	wq        writeQueuer
 	tel       *telemetry
 	rumClient rumClientConfig
 	rumAsset  rumAssetConfig
@@ -76,9 +76,11 @@ func newServer(cfg config) *server {
 	s.applyRawMetricsRetention()
 	// Seed the app/release/artifact registry from SOBS_APP_REGISTRY_SEED_JSON (no-op when unset).
 	s.seedAppRegistry()
-	// Background DB writer (app.py _ensure_write_worker). The writer's ops use s.db, so start it
-	// only after the store is opened. Under parity, ingest writes are awaited (commit-before-ack).
-	s.wq = newWriteQueue()
+	// Background DB writer (app.py _ensure_write_worker), via the newWriteQueue provider seam
+	// (providers.go) — the writeQueuer analog of openStore/authGate. The writer's ops use s.db, so
+	// start it only after the store is opened. Under parity, ingest writes are awaited
+	// (commit-before-ack).
+	s.wq = newWriteQueue(cfg)
 	// Periodic background workers (app.py before_serving asyncio tasks). Real-runtime only — see
 	// background_tasks.go. Currently: the raw-metrics window-copy worker.
 	s.startBackgroundWorkers()

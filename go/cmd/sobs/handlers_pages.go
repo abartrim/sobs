@@ -2766,7 +2766,12 @@ func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	selectedServices := queryListNonEmpty(r, "service")
 	service := firstOrEmpty(selectedServices)
-	traceID := strings.TrimSpace(q.Get("trace_id"))
+	// Lower-cased so a trace_id pasted with different casing than the stored (always-lowercase,
+	// see otlpHexID/extractTraceFields) hex still matches — unlike app.py's view_traces, which
+	// compares TraceId verbatim (view_logs, unlike view_traces, does lower(TraceId)=lower(?); this
+	// intentionally applies that same normalization here too, a deliberate Go-only divergence from
+	// the oracle rather than a faithfully-ported quirk).
+	traceID := strings.ToLower(strings.TrimSpace(q.Get("trace_id")))
 	fromTS, toTS, timeError := parseTimeWindowArgs(r)
 	limit := parseLimit(r, 100)
 	offset := parseOffset(r)

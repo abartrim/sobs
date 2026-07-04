@@ -30,3 +30,13 @@ var openStore = func(cfg config) (store.DB, error) {
 var authGate = func(s *server, w http.ResponseWriter, r *http.Request) bool {
 	return s.enforceAuth(w, r)
 }
+
+// newWriteQueue constructs the process's background DB-writer (app.py's _ensure_write_worker),
+// i.e. the queue every ingest route (logs/traces/metrics/rum/errors/ai) enqueues onto via
+// enqueueWrite. The default is the embedded in-process channel+goroutine batcher (writequeue.go).
+// An alternate build can reassign this (e.g. in an init()) to a different writeQueuer backend —
+// for instance one that publishes to an external broker — without touching newServer or
+// enqueueWrite.
+var newWriteQueue = func(cfg config) writeQueuer {
+	return newDefaultWriteQueue()
+}
