@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+// writeQueuer is the interface the server depends on for its background DB-writer, so the default
+// in-process channel+goroutine implementation and a test fake (or an alternate build's own backend —
+// e.g. one fed by an external broker) can be swapped without touching enqueueWrite or any ingest
+// handler. This is the same seam pattern as store.DB / openStore and authGate (see providers.go):
+// the concrete type below satisfies it structurally, and newWriteQueue in providers.go is the single
+// construction point an alternate build reassigns.
+type writeQueuer interface {
+	enqueue(op func() error, wait bool) error
+	depth() int
+}
+
 // writeQueue is a faithful port of app.py's background DB-writer (_write_queue / _write_worker_main
 // / _queue_write / _run_write_batch). chdb is single-process, so a single writer goroutine draining
 // a bounded channel serializes all ingest writes and gives burst backpressure:
@@ -33,7 +44,10 @@ type writeTask struct {
 
 var errWriteQueueFull = errors.New("write queue is full")
 
-func newWriteQueue() *writeQueue {
+// newDefaultWriteQueue constructs the built-in in-process writeQueue. It is the default behind the
+// newWriteQueue provider seam (providers.go); call it directly (as the tests do) to exercise the
+// concrete implementation regardless of what the seam currently points at.
+func newDefaultWriteQueue() *writeQueue {
 	q := &writeQueue{
 		ch:          make(chan *writeTask, max(1, envInt("SOBS_WRITE_QUEUE_MAX", 5000))),
 		batchMax:    max(1, envInt("SOBS_WRITE_BATCH_MAX", 200)),
