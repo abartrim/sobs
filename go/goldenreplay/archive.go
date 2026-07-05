@@ -3,10 +3,12 @@ package goldenreplay
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 // loadTarGzIndex decompresses a gzip'd tar archive fully into memory, keyed by each
@@ -78,13 +80,29 @@ func extractTarGz(archivePath, destDir string) error {
 		if rel == "." {
 			continue
 		}
-		target := filepath.Join(destDir, filepath.FromSlash(rel))
+		target, err := safeJoin(destDir, rel)
+		if err != nil {
+			return fmt.Errorf("tar entry %q: %w", hdr.Name, err)
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeSymlink:
+			// hdr.Linkname is the raw string os.Symlink stores as the link's target — an
+			// absolute linkname (e.g. "/etc/passwd") would create a symlink pointing
+			// straight there regardless of destDir, so only relative linknames are
+			// accepted, and only ones that stay within destDir once resolved against the
+			// symlink's own directory (this archive's only legitimate use, chdb's Atomic
+			// engine, links relative paths like "../../store/<uuid>" — see the comment
+			// above extractTarGz).
+			if filepath.IsAbs(hdr.Linkname) {
+				return fmt.Errorf("tar entry %q: symlink target %q must be relative", hdr.Name, hdr.Linkname)
+			}
+			if _, err := safeJoin(destDir, filepath.Join(filepath.Dir(rel), hdr.Linkname)); err != nil {
+				return fmt.Errorf("tar entry %q: symlink target %q: %w", hdr.Name, hdr.Linkname, err)
+			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
@@ -113,4 +131,16 @@ func extractTarGz(archivePath, destDir string) error {
 		}
 	}
 	return nil
+}
+
+// safeJoin joins destDir and rel (a tar entry's cleaned relative path) and rejects the
+// result if it escapes destDir — a "zip slip" guard against a crafted archive entry name
+// like "../../etc/passwd" writing outside the intended extraction directory.
+func safeJoin(destDir, rel string) (string, error) {
+	target := filepath.Join(destDir, filepath.FromSlash(rel))
+	base := filepath.Clean(destDir)
+	if target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes destination directory: %q", rel)
+	}
+	return target, nil
 }

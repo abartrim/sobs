@@ -150,8 +150,15 @@ func (sm *sourceMapper) lookupForFile(jsURL string, line, col int) (string, int,
 	if u != nil {
 		urlPath = u.Path
 	}
-	relPath := strings.TrimPrefix(urlPath, "/")
+	// jsURL comes from a stack-trace frame in externally-submitted RUM/error telemetry, so
+	// urlPath is untrusted input. Reject path traversal exactly like handleStatic does for
+	// /static/ (static.go): prefix with "/" before Clean so any "../" sequences collapse
+	// against the root and can never resolve outside sm.dir once re-joined onto it.
+	relPath := strings.TrimPrefix(filepath.Clean("/"+urlPath), "/")
 	basename := path.Base(urlPath)
+	if basename != "" {
+		basename = strings.TrimPrefix(filepath.Clean("/"+basename), "/")
+	}
 
 	var candidates []string
 	if relPath != "" {

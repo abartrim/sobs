@@ -322,9 +322,13 @@ func (s *server) ingestOTLPTraces(body map[string]any) (int, error) {
 				if endNs > startNs {
 					durationMs = float64(endNs-startNs) / 1_000_000
 				}
-				statusCode := 0
+				// otlpInt returns int64 (parsed from untrusted OTLP ingest JSON, which can be
+				// an arbitrary numeric string) — kept as int64 rather than narrowed to int so
+				// an oversized value can't silently truncate; jsonenc renders int and int64
+				// identically, so this doesn't affect output bytes.
+				var statusCode int64
 				if st, ok := m["status"].(map[string]any); ok {
-					statusCode = int(otlpInt(st["code"]))
+					statusCode = otlpInt(st["code"])
 				}
 				status := "UNSET"
 				if statusCode == 1 {
@@ -493,7 +497,8 @@ func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {
 					if b, _ := sm["isMonotonic"].(bool); b {
 						mono = 1
 					}
-					temp := int(otlpInt(sm["aggregationTemporality"]))
+					// kept as int64 (not narrowed to int) — see the statusCode comment above.
+					temp := otlpInt(sm["aggregationTemporality"])
 					for _, d := range asList(sm["dataPoints"]) {
 						dp, _ := d.(map[string]any)
 						row := base(dp, otlpDPValue(dp))
@@ -501,7 +506,7 @@ func (s *server) ingestOTLPMetrics(body map[string]any) (int, error) {
 						sum = append(sum, row)
 					}
 				} else if h, ok := m["histogram"].(map[string]any); ok {
-					temp := int(otlpInt(h["aggregationTemporality"]))
+					temp := otlpInt(h["aggregationTemporality"])
 					for _, d := range asList(h["dataPoints"]) {
 						dp, _ := d.(map[string]any)
 						row := base(dp, 0)

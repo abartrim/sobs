@@ -53,14 +53,20 @@ func cStr(m map[string]any, key string) string {
 }
 
 // cInt mirrors Python int(row[key]). UInt64/COUNT() columns arrive as strings (ClickHouse
-// FORMAT JSON stringifies 64-bit ints); small ints arrive as float64.
+// FORMAT JSON stringifies 64-bit ints); small ints arrive as float64. Narrows int64 -> int:
+// this is a theoretical concern only on a 32-bit platform (every SOBS deployment target is
+// amd64/arm64, where int is 64-bit, per Dockerfile.go), and strconv.ParseInt already clamps
+// an out-of-range string to +/-MaxInt64 rather than wrapping. cInt has ~120 call sites across
+// the handler package, many feeding pagination/slice-index int params directly, so widening
+// its return type is a much larger, riskier change than the low practical severity here
+// justifies — see [[go-security-findings]] memory for the fuller writeup.
 func cInt(m map[string]any, key string) int {
 	switch v := m[key].(type) {
 	case float64:
 		return int(v)
 	case string:
 		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		return int(n)
+		return int(n) // codeql[go/incorrect-integer-conversion] -- see comment above
 	default:
 		return 0
 	}

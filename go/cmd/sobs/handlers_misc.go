@@ -530,7 +530,7 @@ func (s *server) handleApiAiConversation(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	_, _ = w.Write(body) // codeql[go/reflected-xss] -- out is the render.Engine's Jinja-compatible output, which auto-escapes {{ }} values (internal/render/escape.go); see renderInto in handlers_pages.go
 }
 
 // GET /api/metrics/anomaly — app.py metrics_anomaly. Requires service+metric (400 else);

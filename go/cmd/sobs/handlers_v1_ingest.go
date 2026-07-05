@@ -178,8 +178,8 @@ func (s *server) handleV1Ai(w http.ResponseWriter, r *http.Request) {
 		"gen_ai.operation.name":      operation,
 		"gen_ai.provider.name":       provider,
 		"gen_ai.request.model":       model,
-		"gen_ai.usage.input_tokens":  strconv.Itoa(rumInt(m, "tokens_in")),
-		"gen_ai.usage.output_tokens": strconv.Itoa(rumInt(m, "tokens_out")),
+		"gen_ai.usage.input_tokens":  strconv.FormatInt(rumInt(m, "tokens_in"), 10),
+		"gen_ai.usage.output_tokens": strconv.FormatInt(rumInt(m, "tokens_out"), 10),
 	}
 	if v, ok := m["input_messages"]; ok && v != nil {
 		attrs["gen_ai.input.messages"] = rumStringifyContentAttr(v)
@@ -541,24 +541,28 @@ func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) 
 	}
 	// ttl_raw = payload.get("ttlSec", default); int(ttl_raw) — accepts ints, floats, AND numeric
 	// strings ("3600"); a TypeError/ValueError falls back to the configured default.
-	ttlSec := s.rumClient.ttlSec
+	// ttlSec is parsed as int64 and clamped at that width before narrowing to int — the
+	// payload's ttlSec is untrusted client input and could be an arbitrarily large numeric
+	// string; clamping first (clampInt64) means an out-of-range value can't be silently
+	// truncated by a premature int(...) conversion, unlike clamping after narrowing.
+	ttlSec64 := int64(s.rumClient.ttlSec)
 	if v, ok := m["ttlSec"]; ok {
 		switch t := v.(type) {
 		case float64:
-			ttlSec = int(t)
+			ttlSec64 = int64(t)
 		case json.Number:
 			if i, err := strconv.ParseInt(strings.TrimSpace(string(t)), 10, 64); err == nil {
-				ttlSec = int(i)
+				ttlSec64 = i
 			} else if f, err := strconv.ParseFloat(strings.TrimSpace(string(t)), 64); err == nil {
-				ttlSec = int(f)
+				ttlSec64 = int64(f)
 			}
 		case string:
 			if i, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64); err == nil {
-				ttlSec = int(i)
+				ttlSec64 = i
 			}
 		}
 	}
-	ttlSec = clampInt(ttlSec, 30, 24*60*60)
+	ttlSec := int(clampInt64(ttlSec64, 30, 24*60*60))
 
 	now := nowUTC().Unix()
 	claims := rumClaims{Iss: "sobs-rum", App: appName, Origin: origin, Iat: now, Exp: now + int64(ttlSec), Jti: rumJTI()}

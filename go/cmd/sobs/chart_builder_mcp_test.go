@@ -72,7 +72,7 @@ func TestCompileBuilderSQLGuards(t *testing.T) {
 func TestMcpToInt(t *testing.T) {
 	ok := []struct {
 		in   any
-		want int
+		want int64
 	}{
 		{json.Number("5"), 5},
 		{json.Number("5.9"), 5}, // int(float) truncates toward zero

@@ -134,6 +134,19 @@ func orDefault(v, def string) string {
 	return v
 }
 
+// clampInt64 is clampInt for values parsed from untrusted input that may exceed int's
+// range before being bounded — clamp first at int64 width, then narrow, so an
+// out-of-range input can't be silently truncated by a premature int(...) conversion.
+func clampInt64(n, lo, hi int64) int64 {
+	if n < lo {
+		return lo
+	}
+	if n > hi {
+		return hi
+	}
+	return n
+}
+
 // clampInt mirrors `max(lo, min(hi, n))`.
 func clampInt(n, lo, hi int) int {
 	if n < lo {

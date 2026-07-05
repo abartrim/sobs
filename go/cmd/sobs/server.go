@@ -318,6 +318,10 @@ func (h *headerCapture) Write(b []byte) (int, error) {
 		h.applySecurityHeaders()
 		h.wroteHeader = true
 	}
+	// codeql[go/reflected-xss] -- generic transport-level passthrough every response body
+	// goes through; content safety is each handler's responsibility (HTML-producing handlers
+	// escape via htmlEscapeMarkup or render.Engine's Jinja-compatible autoescape — see
+	// handlers_forms.go/handlers_pages.go/handlers_misc.go), not this wrapper's.
 	return h.ResponseWriter.Write(b)
 }
 

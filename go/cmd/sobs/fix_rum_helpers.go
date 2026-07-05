@@ -107,8 +107,12 @@ func rumStringifyContentAttr(v any) string {
 
 // rumInt mirrors Python int(payload.get(key, 0) or 0): accepts ints, integral/truncated floats,
 // AND numeric strings like "5" (Python int("5") == 5). A non-numeric / unparseable value yields 0.
-// With UseNumber, numbers arrive as json.Number; without, as float64.
-func rumInt(m map[string]any, key string) int {
+// With UseNumber, numbers arrive as json.Number; without, as float64. Returns int64 (not
+// narrowed to int) since m/key come from an externally-submitted RUM payload and Python's
+// int() has arbitrary precision — an oversized value shouldn't be truncated by the Go
+// conversion itself; jsonenc renders int and int64 identically, so callers that serialize
+// this value are unaffected.
+func rumInt(m map[string]any, key string) int64 {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return 0
@@ -116,18 +120,18 @@ func rumInt(m map[string]any, key string) int {
 	switch x := v.(type) {
 	case json.Number:
 		if i, err := strconv.ParseInt(strings.TrimSpace(string(x)), 10, 64); err == nil {
-			return int(i)
+			return i
 		}
 		if f, err := strconv.ParseFloat(strings.TrimSpace(string(x)), 64); err == nil {
-			return int(f)
+			return int64(f)
 		}
 		return 0
 	case float64:
-		return int(x)
+		return int64(x)
 	case int:
-		return x
+		return int64(x)
 	case int64:
-		return int(x)
+		return x
 	case bool:
 		// Python `False or 0` -> 0; `True` -> int(True) == 1.
 		if x {
@@ -140,7 +144,7 @@ func rumInt(m map[string]any, key string) int {
 			return 0
 		}
 		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return int(i)
+			return i
 		}
 		// Python int() only parses integer literals; a float-looking string raises ValueError.
 		// The payloads in practice send ints, so a non-integer string maps to 0.
@@ -155,7 +159,12 @@ var traceparentRe = regexp.MustCompile(`^[0-9a-fA-F]{2}-([0-9a-fA-F]{32})-([0-9a
 // extractTraceFields mirrors app.py _extract_trace_fields(event): trim+lowercase traceId/spanId,
 // parse traceFlags (hex when a string, int otherwise), with a W3C traceparent fallback when
 // traceId/spanId are absent.
-func extractTraceFields(event map[string]any) (traceID, spanID string, traceFlags int) {
+// traceFlags is returned as int64 (not narrowed to int): the raw event["traceFlags"] path
+// parses an externally-submitted RUM payload value with no bound (unlike the traceparent
+// fallback below, whose flags are always exactly 2 hex digits, max 0xFF), so keeping the
+// wider type avoids a silent Go-side truncation before chdb's own TraceFlags UInt8 column
+// validates the range on insert.
+func extractTraceFields(event map[string]any) (traceID, spanID string, traceFlags int64) {
 	traceID = strings.ToLower(strings.TrimSpace(rumStrOrEmpty(event["traceId"])))
 	spanID = strings.ToLower(strings.TrimSpace(rumStrOrEmpty(event["spanId"])))
 	traceFlags = 0
@@ -165,16 +174,16 @@ func extractTraceFields(event map[string]any) (traceID, spanID string, traceFlag
 		if strings.TrimSpace(rawStr) != "" {
 			if s, isStr := raw.(string); isStr {
 				if n, err := strconv.ParseInt(strings.TrimSpace(s), 16, 64); err == nil {
-					traceFlags = int(n)
+					traceFlags = n
 				} else {
 					traceFlags = 0
 				}
 			} else {
 				// int(raw) for a numeric value.
 				if n, err := strconv.ParseInt(strings.TrimSpace(rawStr), 10, 64); err == nil {
-					traceFlags = int(n)
+					traceFlags = n
 				} else if f, err := strconv.ParseFloat(strings.TrimSpace(rawStr), 64); err == nil {
-					traceFlags = int(f)
+					traceFlags = int64(f)
 				} else {
 					traceFlags = 0
 				}
@@ -201,7 +210,7 @@ func extractTraceFields(event map[string]any) (traceID, spanID string, traceFlag
 	if parsedSpan == "" {
 		parsedSpan = spanID
 	}
-	return parsedTrace, parsedSpan, int(parsedFlags)
+	return parsedTrace, parsedSpan, parsedFlags
 }
 
 // rumStrOrEmpty mirrors str(x or "") — a falsy value (nil, "", 0, false) yields "".
