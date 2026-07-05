@@ -1,6 +1,0 @@
-columns format version: 1
-4 columns:
-`Key` LowCardinality(String)
-`Value` String
-`IsDeleted` UInt8
-`Version` UInt64

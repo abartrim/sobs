@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "SELECT model, count() AS cnt FROM otel_traces GROUP BY model"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 55, "completion_tokens": 12}}}

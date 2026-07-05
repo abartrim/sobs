@@ -11,34 +11,6 @@ python_version = "3.12"
 ignore_missing_imports = true
 disable_error_code = ["annotation-unchecked"]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
-asyncio_mode = "auto"
-markers = [
-    "integration: mark test as an integration test requiring a live server and Playwright browser",
-    "uiqa: mark Python Playwright UI behavioral tests",
-    "allow_console_errors: allow expected browser console/page errors for a test (optionally with patterns=...)",
-]
-
-[tool.coverage.run]
-source = ["app", "masking", "mcp", "telemetry"]
-omit = [
-    "tests/*",
-    "scripts/*",
-    "examples/*",
-    ".venv/*",
-]
-
-[tool.coverage.report]
-show_missing = true
-skip_empty = true
-exclude_lines = [
-    "pragma: no cover",
-    "if TYPE_CHECKING:",
-    "raise NotImplementedError",
-    "@(abc\\.)?abstractmethod",
-]
-
 [tool.djlint]
 profile = "jinja"
 extension = "html"

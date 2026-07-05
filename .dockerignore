@@ -8,12 +8,10 @@ venv/
 dist/
 build/
 
-# Go image build context: exclude the huge gitignored native lib + the parity corpus/tooling
-# (the Go Dockerfile downloads its own pinned libchdb and needs only go/ + templates/ + static/).
+# Go image build context: exclude the huge gitignored native lib (the Go Dockerfile downloads
+# its own pinned libchdb and needs only go/ + templates/ + static/).
 .libchdb/
-migration/
 .git/
 .claude/
 node_modules/
-tests/
 *.tar.gz

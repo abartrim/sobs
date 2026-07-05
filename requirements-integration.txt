@@ -1,8 +1,0 @@
-pytest>=9.1.1
-pytest-asyncio>=1.4.0
-pytest-playwright>=0.8.0
-pytest-cov>=7.1.0
-diff-cover>=10.3.0
-playwright>=1.60.0
-requests>=2.34.2
-types-requests>=2.33.0.20260518

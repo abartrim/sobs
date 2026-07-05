@@ -4,8 +4,6 @@
 #
 # Hot-reload dev loop:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 #   (swaps `sobs` for the air container that rebuilds + restarts on every Go source save).
-#
-# The Python server still builds from the standalone ./Dockerfile if you need the oracle.
 
 services:
   sobs:

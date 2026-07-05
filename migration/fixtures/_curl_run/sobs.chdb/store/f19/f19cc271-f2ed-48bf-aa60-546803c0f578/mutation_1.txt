@@ -1,3 +1,0 @@
-format version: 1
-create time: 2026-06-19 14:55:46
-commands: (MATERIALIZE TTL)
