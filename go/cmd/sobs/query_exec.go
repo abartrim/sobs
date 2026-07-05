@@ -309,9 +309,13 @@ func (s *server) handleApiDashboardsSpecDryRun(w http.ResponseWriter, r *http.Re
 		Set("rows", rows).Set("named_query_results", s.executeNamedQueries(named, 5)))
 }
 
-// md5Hex16Plus returns the full hex md5 of s (used for query trace ids).
+// md5Hex16Plus returns the full hex md5 of s (used for query trace ids). MD5 here is a
+// content-addressing fingerprint, not a protection for secret/sensitive data — s is a
+// query/question string plus a timestamp, never a credential — and it mirrors app.py's own
+// hashlib.md5() use for the exact same trace/tag IDs; swapping the algorithm would change
+// every trace_id/tag_id byte value and break parity with the frozen golden corpus.
 func md5Hex(s string) string {
-	sum := md5.Sum([]byte(s))
+	sum := md5.Sum([]byte(s)) // codeql[go/weak-sensitive-data-hashing] -- non-cryptographic ID, see comment above
 	return hex.EncodeToString(sum[:])
 }
 

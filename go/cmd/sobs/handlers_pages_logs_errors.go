@@ -173,10 +173,14 @@ func parseTraceFilterValues(traceID string, rawTraceIDs []string) (parsed []stri
 	return parsed, primary
 }
 
-// recordIDForLog mirrors _record_id_for_log(ts, service, trace_id, span_id).
+// recordIDForLog mirrors _record_id_for_log(ts, service, trace_id, span_id). MD5 here is a
+// content-addressing fingerprint for a UI row ID, not a protection for secret/sensitive
+// data, and mirrors app.py's own hashlib.md5() use for this same ID — swapping the
+// algorithm would change every emitted record ID and break parity with the frozen golden
+// corpus.
 func recordIDForLog(ts, service, traceID, spanID string) string {
 	key := service + "|" + ts + "|" + traceID + "|" + spanID
-	sum := md5.Sum([]byte(key))
+	sum := md5.Sum([]byte(key)) // codeql[go/weak-sensitive-data-hashing] -- non-cryptographic ID, see comment above
 	return hex.EncodeToString(sum[:])
 }
 
@@ -463,7 +467,7 @@ func computeAdvancedLogAnalysis(analysisRows []map[string]any, levelStats, servi
 	if total < 1 {
 		total = 1
 	}
-	severe := 0
+	var severe int64
 	severeSet := map[string]bool{"ERROR": true, "FATAL": true, "CRITICAL": true, "ALERT": true, "EMERGENCY": true}
 	for _, level := range levelStats.Keys() {
 		if severeSet[strings.ToUpper(level)] {
@@ -523,15 +527,17 @@ func pyRoundHalfEven(v float64) float64 {
 	return floor + 1
 }
 
-func toIntVal(v any) int {
+// toIntVal returns int64 (not narrowed to int) so a large aggregate count from v can't be
+// silently truncated by the conversion itself.
+func toIntVal(v any) int64 {
 	switch x := v.(type) {
 	case int:
-		return x
+		return int64(x)
 	case float64:
-		return int(x)
+		return int64(x)
 	case string:
 		n, _ := strconv.ParseInt(strings.TrimSpace(x), 10, 64)
-		return int(n)
+		return n
 	default:
 		return 0
 	}

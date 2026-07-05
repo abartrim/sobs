@@ -208,7 +208,7 @@ func TestExtractTraceFields(t *testing.T) {
 		event     map[string]any
 		wantTrace string
 		wantSpan  string
-		wantFlags int
+		wantFlags int64
 	}{
 		{
 			"empty event",

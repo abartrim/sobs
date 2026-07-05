@@ -123,7 +123,7 @@ func plainRedirect(w http.ResponseWriter, location string) {
 	h.Set("Location", location)
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusFound)
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(body)) // codeql[go/reflected-xss] -- body embeds `esc`, already HTML-escaped above via htmlEscapeMarkup (all 5 entities); CodeQL doesn't recognize this port's custom escaper as a sanitizer
 }
 
 // flashRedirect reproduces Quart's `flash(message, category); return redirect(location)`: a
@@ -140,7 +140,7 @@ func flashRedirect(w http.ResponseWriter, category, message, location string) {
 	h.Set("Vary", "Cookie")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusFound)
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(body)) // codeql[go/reflected-xss] -- body embeds `esc`, already HTML-escaped above via htmlEscapeMarkup; see plainRedirect
 }
 
 // flashRedirectWithCiKey is flashRedirect plus the one-time CI-push key stashed in the session

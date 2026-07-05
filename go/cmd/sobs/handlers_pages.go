@@ -482,7 +482,7 @@ func (s *server) renderInto(w http.ResponseWriter, eng *render.Engine, templateN
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	_, _ = w.Write(body) // codeql[go/reflected-xss] -- out is the render.Engine's Jinja-compatible output, which auto-escapes {{ }} values (internal/render/escape.go's escapeHTML mirrors MarkupSafe); CodeQL doesn't recognize the custom engine as a sanitizer
 }
 
 // GET /query — app.py view_query: 404 string when the query page is disabled (fixture).
