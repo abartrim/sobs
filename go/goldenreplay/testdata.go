@@ -16,7 +16,7 @@ type route struct {
 	Methods []string `json:"methods"`
 	Profile string   `json:"profile"`
 	Request request  `json:"request"`
-	Stream  bool      `json:"stream"`
+	Stream  bool     `json:"stream"`
 	Mask    []string `json:"mask"`
 }
 

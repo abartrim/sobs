@@ -48,6 +48,15 @@ var pinnedEnv = map[string]string{
 	"SOBS_SUMMARY_STATS_CACHE_TTL_SEC": "0",
 	"SOBS_FAKE_EPOCH":                  "1704164645.0",
 	"SOURCE_MAP_ENABLE":                "0",
+	// chdb's embedded ClickHouse engine formats DateTime columns (e.g. hyperdx_sessions.Timestamp)
+	// to strings using the PROCESS's system timezone — a chdb-internal behavior entirely outside
+	// SOBS_FAKE_EPOCH's app-level clock override (the same class of gotcha as chdb's now() reading
+	// real vDSO time). The frozen golden corpus was captured on a host with TZ=America/Phoenix
+	// (fixed MST, no DST); replaying on a host/container with a different system TZ (e.g. a UTC
+	// CI runner) silently reformats those same underlying values to different strings, byte-diffing
+	// as a MISMATCH despite identical underlying data. Pinning TZ here — like SOBS_FAKE_EPOCH pins
+	// the app clock — makes the corpus portable to any machine, not just the one that captured it.
+	"TZ": "America/Phoenix",
 }
 
 var buildOnce sync.Once
@@ -140,12 +149,36 @@ func TestGoldenCorpus(t *testing.T) {
 	t.Logf("GOLDEN CORPUS: GREEN %d / RED %d / EXCLUDED %d — total %d", green, red, len(excluded), len(routes))
 }
 
+// setEnvVar OVERWRITES rather than appends: a duplicate key later in the list isn't reliably
+// authoritative across platforms/libraries (e.g. glibc getenv() returns the FIRST match), so a pin
+// like TZ must replace any inherited entry, not just be appended after it.
+func setEnvVar(env []string, k, v string) []string {
+	prefix := k + "="
+	for i, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			env[i] = k + "=" + v
+			return env
+		}
+	}
+	return append(env, k+"="+v)
+}
+
 func runProfile(t *testing.T, profile string, routes []route, port int, binary, seeder, libPath, baseFixture, upstreamDir string, envOverlay map[string]string) (green, red int) {
 	workdir := t.TempDir()
 	dataDir := filepath.Join(workdir, "data")
 	if err := copyDir(baseFixture, dataDir); err != nil {
 		t.Fatalf("copy base fixture: %v", err)
 	}
+
+	// pinnedEnv (including TZ) must apply identically to BOTH the seeder and the server: chdb
+	// interprets/formats DateTime columns using the process's system timezone, so if the seeder
+	// (which INSERTs fixture timestamps) and the server (which later reads/formats them) ran under
+	// different TZs, the round-trip wouldn't be an identity even though the underlying data matches.
+	baseEnv := os.Environ()
+	for k, v := range pinnedEnv {
+		baseEnv = setEnvVar(baseEnv, k, v)
+	}
+	baseEnv = setEnvVar(baseEnv, "CHDB_LIB_PATH", libPath)
 
 	if deltaPath := filepath.Join(testdataDir, "fixtures", "seeds", profile+".json"); fileExists(deltaPath) {
 		absDeltaPath, err := filepath.Abs(deltaPath)
@@ -156,7 +189,7 @@ func runProfile(t *testing.T, profile string, routes []route, port int, binary, 
 		// documented per-process global state that misbehaves under repeated Open/Close
 		// cycles within one long-lived process; a fresh process per profile avoids it.
 		cmd := exec.Command(seeder, dataDir, absDeltaPath)
-		cmd.Env = append(os.Environ(), "CHDB_LIB_PATH="+libPath)
+		cmd.Env = baseEnv
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("seed profile %q: %v\n%s", profile, err, out)
 		}
@@ -168,12 +201,10 @@ func runProfile(t *testing.T, profile string, routes []route, port int, binary, 
 		}
 	}
 
-	env := os.Environ()
-	set := func(k, v string) { env = append(env, k+"="+v) }
-	for k, v := range pinnedEnv {
-		set(k, v)
-	}
-	set("CHDB_LIB_PATH", libPath)
+	// baseEnv already carries pinnedEnv + CHDB_LIB_PATH (applied identically for the seeder above);
+	// just layer the server-specific vars on top.
+	env := append([]string{}, baseEnv...)
+	set := func(k, v string) { env = setEnvVar(env, k, v) }
 	set("SOBS_DATA_DIR", dataDir)
 	set("SOBS_PORT", strconv.Itoa(port))
 	for k, v := range envOverlay {
