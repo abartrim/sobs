@@ -7,9 +7,8 @@
 # 3) Exports SOBS AI/Guard/DLP env vars and runs SOBS (or a custom command).
 #
 # Usage:
-#   ./scripts/start_spark_ai_test.sh
-#   ./scripts/start_spark_ai_test.sh -- python app.py
-#   ./scripts/start_spark_ai_test.sh -- .venv/bin/python app.py
+#   ./scripts/start_spark_ai_test.sh              # runs go/sobs (build it first)
+#   ./scripts/start_spark_ai_test.sh -- ./go/sobs
 
 set -euo pipefail
 
@@ -51,7 +50,13 @@ if [[ "${1:-}" == "--" ]]; then
 fi
 RUN_CMD=("$@")
 if [[ ${#RUN_CMD[@]} -eq 0 ]]; then
-  RUN_CMD=(python app.py)
+  SOBS_GO_BIN="${SOBS_GO_BIN:-go/sobs}"
+  if [[ ! -x "$SOBS_GO_BIN" ]]; then
+    echo "[error] no command given and $SOBS_GO_BIN doesn't exist yet." >&2
+    echo "Build it first: (cd go && go build -o sobs ./cmd/sobs), or pass a command after --." >&2
+    exit 1
+  fi
+  RUN_CMD=("$SOBS_GO_BIN")
 fi
 
 PF_PIDS=()

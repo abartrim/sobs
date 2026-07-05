@@ -1,52 +1,48 @@
 # SOBS — Go implementation
 
-A from-scratch Go reimplementation of the Python SOBS server. **During migration, the
-only definition of "correct" is byte-for-byte parity with the Python app**, enforced by
-`../migration/tools/parity_check.py` against the golden corpus. Read `../migration/GOAL.md`
-first — do not start here.
+The Go server is now the whole of SOBS — the from-scratch reimplementation this directory
+started as has fully replaced the original Python app (`app.py`, `mcp.py`, `masking.py`,
+`telemetry/`), which has been deleted. Historically, "correct" during that migration meant
+byte-for-byte parity with the Python app, verified route-by-route against a frozen golden
+corpus. That verification lives on as a Go-native test suite — see `goldenreplay/` below —
+but the Python oracle it once diffed against no longer exists.
 
-## Layout (target)
+## Layout
 
 ```
 go/
-  cmd/sobs/            main, config, server, header middleware (the after_request port)
+  cmd/sobs/            main, config, server, ~190 handler/helper files (routes, auth,
+                       masking, crypto, AI/LLM, notifications, OTLP ingest, …)
   internal/
-    store/             chdb-go wrapper (ChDbConnection port) + Phase-0 gate test
-    render/            text/template engine + Jinja transpiler + filters (the hard part)
-      transpile/       Jinja→text/template mechanical rewriter
-      filters.go       e, tojson, mask, truncate, … (JINJA_TO_GO_SPEC.md §9)
-      macros.go        caller()-style macros ported as funcs
-      loader.go        per-page template sets (extends/include/import)
-    jsonenc/           byte-exact JSON encoder (ordered keys, Python separators/escaping)
-    clock/             fixed-instant clock under SOBS_PARITY=1 (mirrors determinism.py)
-    idgen/             deterministic uuid4 / token stream (mirrors determinism.py)
-    otlp/              protobuf OTLP ingest (google.golang.org/protobuf + OTEL stubs)
-    crypto/            Fernet helper + ECDSA P-256 VAPID (stdlib)
-    masking/           port of masking.py (compliance-critical)
-    handlers/          one handler per app.py @app.route
-  templates/  (symlink or build-time copy of ../templates — same files, Go-compiled)
-  static/     (served from ../static — committed assets, byte-identical)
+    store/             chdb-go wrapper — the embedded ClickHouse session
+    render/            text/template-based Jinja-compatible template engine + filters
+    jsonenc/           byte-exact JSON encoder (ordered keys, Python-style separators/escaping)
+    otlp/              protobuf OTLP ingest (google.golang.org/protobuf + generated OTEL stubs)
+  goldenreplay/         Go-native golden-corpus regression suite (chdb build tag) — boots the
+                        compiled sobs binary per profile and byte-diffs its responses against
+                        testdata/golden/
+  testdata/             the frozen golden corpus + fixtures goldenreplay replays against
+  templates/, static/  symlinks to ../templates, ../static (repo-root assets, Go-rendered)
 ```
 
 ## Build & run
 
 ```bash
-go build ./cmd/sobs && SOBS_PARITY=1 SOBS_DATA_DIR=../data ./sobs    # default: stdlib only
-# Phase 0 onward, with the native chdb engine linked:
-CGO_ENABLED=1 go test -tags chdb ./internal/store -run TestGate0RoundTrip
+go build ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
+# Run the golden-corpus regression suite (needs the native chdb lib — see CHDB_PIN.md):
+CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
 ```
 
 The base module builds with the **standard library only**. `chdb-go` and
 `google.golang.org/protobuf` are the only third-party deps and are added deliberately
-(see `DEPENDENCIES.md`). The Phase-0 chdb gate test is behind the `chdb` build tag so it
-doesn't force the native dependency on every build.
+(see `DEPENDENCIES.md`). The chdb-tagged tests are behind the `chdb` build tag so they
+don't force the native dependency on every build.
 
-## The two hard things (front-loaded)
+## The two hard things (still true)
 
 1. **`internal/render`** — reproducing Jinja2's exact bytes (escaping, `tojson` in
-   `<script>`, macros, whitespace) in `text/template`. Spec: `../migration/JINJA_TO_GO_SPEC.md`.
+   `<script>`, macros, whitespace) in `text/template`.
 2. **`internal/jsonenc`** — reproducing Python `json`/`jsonify` bytes (key order,
-   separators, escaping, trailing newline). Spec: `../migration/PARITY_STRATEGY.md` §4.
+   separators, escaping, trailing newline).
 
-Get these two byte-perfect against a handful of goldens and most of the corpus follows,
-because every route shares them.
+Every route shares them, so `goldenreplay`'s corpus exercises both heavily.

@@ -9,7 +9,7 @@ sides must be frozen on a matching kernel through the cutover.
 
 | Component | Pinned version | Source |
 |-----------|----------------|--------|
-| Python `chdb` | `4.1.9` | already in `requirements.txt` |
+| Python `chdb` | `4.1.9` | historical — the version the now-retired Python oracle pinned; recorded here as the basis for the Go-side pin below |
 | `chdb-core` (native) | `>= 26.5.0`, the exact build chDB 4.1.9 links | https://github.com/chdb-io/chdb-core/releases — **pin an exact tag, do not use `latest`** |
 | `chdb-go` | built from `main` (tagged releases lag) | https://github.com/chdb-io/chdb-go — vendor a specific commit SHA in `go.mod` |
 | ClickHouse kernel | the 25.x kernel chDB 4.x wraps | implied by the chdb-core pin |
@@ -31,8 +31,10 @@ sides must be frozen on a matching kernel through the cutover.
 2. Download/pin that exact `chdb-core` tag for the Go side (do **not** run
    `curl lib.chdb.io | bash` unpinned in CI/prod).
 3. `go get github.com/chdb-io/chdb-go@<commit-sha-on-main>` and record the SHA below.
-4. Run the Phase 0 gate (`PHASES.md`): Python writes → Go reads/writes → Python re-reads.
-   Both directions must PASS before any porting begins.
+4. Run the Phase 0 gate: Python writes → Go reads/writes → Python re-reads. Both
+   directions must PASS before any porting begins. (This gate — proving the two engines
+   share an on-disk format — ran once and passed; see the recorded result below. Its job
+   is permanently settled and the Python side no longer exists to re-run it against.)
 5. Record the exact pins here once verified:
 
 ```

@@ -33,7 +33,7 @@ fi
 if [[ -z "${CHDB_LIB_PATH:-}" || ! -f "${CHDB_LIB_PATH:-}" ]]; then
   echo "[error] libchdb.so not found. Set CHDB_LIB_PATH=/path/to/libchdb.so" >&2
   echo "        (the repo ships a Linux libchdb under .libchdb/ for Docker; on macOS install the" >&2
-  echo "         native libchdb to /usr/local/lib/libchdb.so — see migration/go-migration-macos-env)" >&2
+  echo "         native libchdb to /usr/local/lib/libchdb.so — see go/CHDB_PIN.md)" >&2
   exit 1
 fi
 export CHDB_LIB_PATH

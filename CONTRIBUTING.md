@@ -10,8 +10,8 @@
 
 ## Local Setup
 
-SOBS ships as a **Go** server; the Python app is the frozen **parity oracle** the Go port is
-byte-diffed against. Most development happens in `go/` plus the shared `templates/` and `static/`.
+SOBS ships as a **Go** server. Development happens in `go/` plus the shared `templates/` and
+`static/`; `scripts/` holds a handful of stdlib-only Python ops/release helpers.
 
 ### Go server (primary)
 
@@ -33,47 +33,18 @@ sidecar so the UI populates:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-### Python oracle (parity reference)
+### Golden-corpus regression suite
 
-Set this up only when working on the oracle (`app.py`) or the parity harness under `migration/`:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r requirements-integration.txt
-pip install black isort flake8 mypy djlint
-```
-
-### Parity check
+The Go-native successor to the (now-retired) Python-parity byte-diff: boots the compiled `sobs`
+binary against a frozen corpus of golden HTTP responses and byte-diffs every route.
 
 ```bash
-# Capture goldens from the Python oracle, replay against the Go server, byte-diff every route.
-python migration/tools/run_parity_ci.py
+cd go
+CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
 ```
 
-## Coverage
-
-`requirements-integration.txt` includes `pytest-cov` and `diff-cover`.
-
-Run unit tests with a terminal coverage summary and an XML report:
-
-```bash
-pytest tests --ignore=tests/test_integration.py \
-    --cov=app --cov=masking --cov=mcp \
-    --cov-report=term-missing \
-    --cov-report=xml:coverage.xml
-```
-
-To check coverage only on lines changed by the current branch (useful before
-opening a PR):
-
-```bash
-diff-cover coverage.xml --compare-branch=origin/main
-```
-
-`diff-cover` exits non-zero when any changed line is uncovered, so it can gate
-a PR locally in the same way CI does.  Coverage configuration (omit patterns,
-exclusion rules) lives in the `[tool.coverage.*]` sections of `pyproject.toml`.
+See [go/README.md](go/README.md) and [go/CHDB_PIN.md](go/CHDB_PIN.md) for the pinned native
+chdb library this needs.
 
 ## Pre-Commit Hook
 
@@ -106,41 +77,20 @@ If formatters update files, the hook re-stages those files automatically.
 Run these before opening or updating a PR:
 
 ```bash
-isort *.py tests/ scripts
-black *.py tests/ scripts
-flake8 *.py tests/ scripts
-mypy app.py tests scripts
+isort scripts
+black scripts
+flake8 scripts
 python3 scripts/run_djlint.py --reformat --lint templates
 python3 scripts/run_djlint.py --check --lint templates
-pytest tests/
 ```
 
 On a clean tree, `--check` applies only to templates changed on the current branch. To format a specific file directly, pass the file path instead of the `templates` directory.
 
 ## Regenerating Docs Screenshots
 
-Use the integration screenshot suite to refresh UI screenshots used in docs/help:
-
-```bash
-python -m pytest tests/test_integration.py -q -k "TestScreenshots"
-```
-
-Output files are written to `tests/screenshots/`.
-
-The screenshot harness disables the first-run tour (`SOBS_ENABLE_FIRST_RUN_TOUR=0`) and also force-dismisses any visible tour modal before capture so docs screenshots are not obscured.
-
-To sync images used by in-app help pages:
-
-```bash
-cp tests/screenshots/dashboard.png static/help/dashboard.png
-cp tests/screenshots/ai.png static/help/ai.png
-cp tests/screenshots/logs.png static/help/logs.png
-cp tests/screenshots/traces.png static/help/traces.png
-cp tests/screenshots/traces_drilldown.png static/help/traces_drilldown.png
-cp tests/screenshots/query.png static/help/query.png
-cp tests/screenshots/summary.png static/help/summary.png
-cp tests/screenshots/summary_ai_assistant.png static/help/summary_ai_assistant.png
-```
+There is currently no automated screenshot-capture harness (it lived in the now-retired Python
+integration test suite). Help-page screenshots under `static/help/` need to be captured manually
+against a running instance until a Go-native replacement exists.
 
 ## Releasing
 
@@ -164,9 +114,10 @@ Releases are driven by a Git tag pushed to GitHub. CI picks up any tag matching 
    ```
 
 4. **CI publishes the Go image automatically.** The `docker` job in `.github/workflows/ci.yml`
-   detects `refs/tags/v*`, builds `Dockerfile.go` (gated on the `parity` + `docker-go-smoke` jobs, so
-   a release only ships a parity-verified Go build), passes `SOBS_BUILD_VERSION=v1.2.3` as a build
-   arg, and pushes the multi-arch image to GHCR with both the version tag and a new `latest`:
+   detects `refs/tags/v*`, builds `Dockerfile.go` (gated on the `go-build-test` + `docker-go-smoke`
+   jobs, so a release only ships a build that passed unit tests and the golden-corpus replay),
+   passes `SOBS_BUILD_VERSION=v1.2.3` as a build arg, and pushes the multi-arch image to GHCR with
+   both the version tag and a new `latest`:
 
    - `ghcr.io/abartrim/sobs:v1.2.3`
    - `ghcr.io/abartrim/sobs:latest`
