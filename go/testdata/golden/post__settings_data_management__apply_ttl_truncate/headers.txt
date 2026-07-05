@@ -1,0 +1,8 @@
+content-type: text/html; charset=utf-8
+Content-Length: 653
+location: /settings/data-management?msg=Settings saved but TTL errors: otel_logs: TTL days must be a positive integer; otel_traces: TTL days must be a positive integer; hyperdx_sessions: TTL days must be a positive integer&msg_type=warning
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'

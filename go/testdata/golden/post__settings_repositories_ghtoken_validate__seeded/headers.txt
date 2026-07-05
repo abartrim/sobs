@@ -1,0 +1,10 @@
+content-type: text/html; charset=utf-8
+Content-Length: 231
+location: /settings/repositories
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'
+set-cookie: sobs_session=eyJfZmxhc2hlcyI6W3siIHQiOlsic3VjY2VzcyIsIkdpdEh1YiB0b2tlbiB2YWxpZGF0aW9uOiBUb2tlbiBpcyB2YWxpZCJdfV19.ZZN9JQ.LE2nKgLCxO5trUOBlGPqb9aJ-y0; HttpOnly; Path=/; SameSite=Lax
+vary: Cookie

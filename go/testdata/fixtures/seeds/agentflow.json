@@ -1,0 +1,31 @@
+{
+"sobs_agent_rules": [
+{
+"Id": "e3000000000000000000000000000001",
+"Name": "Parity Flow Issue Rule",
+"Description": "Analyze + github_issue agent rule for the full-flow parity.",
+"TriggerType": "manual",
+"TriggerRefId": "",
+"TriggerState": "any",
+"Actions": "analyze,github_issue",
+"RateLimitMinutes": 60,
+"IsEnabled": 1,
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+],
+"sobs_ai_settings": [
+{
+"Key": "ai.github_repo",
+"Value": "acme/widget",
+"IsDeleted": 0,
+"Version": 1704164644000
+},
+{
+"Key": "ai.github_token",
+"Value": "ghp_parity_token",
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+]
+}

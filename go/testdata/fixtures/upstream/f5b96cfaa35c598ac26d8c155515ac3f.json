@@ -1,0 +1,1 @@
+{"status": 200, "content": "data: {\"choices\":[{\"delta\":{\"content\":\"To find errors, filter otel_logs where SeverityText = 'ERROR'.\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":215,\"completion_tokens\":14,\"thinking_tokens\":0}}\n\ndata: [DONE]\n\n"}

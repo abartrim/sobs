@@ -1,0 +1,1 @@
+{"field":"","ok":true,"operator":"eq","scope":"tag_rule","suggestions":["db.system","http.method","http.route","otel.scope.name","rpc.service","service.version"],"target":"attr_key"}

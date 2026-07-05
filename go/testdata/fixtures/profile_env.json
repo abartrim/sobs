@@ -1,0 +1,569 @@
+{
+ "base": {},
+ "validateerr": {},
+ "formerr": {},
+ "logsview": {},
+ "logsrich": {},
+ "tagmatch": {},
+ "errorsview": {},
+ "errorsummary": {},
+ "aiview": {},
+ "airich": {},
+ "aiturns": {},
+ "aitoolturns": {},
+ "airichsql": {},
+ "tracesrich": {},
+ "tracemetrics": {},
+ "tracewindows": {},
+ "reportsimport": {},
+ "rulecreate": {},
+ "rumingest": {},
+ "metricscreate": {},
+ "notifrule": {},
+ "aisettings": {},
+ "rumtoken": {
+  "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
+  "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key"
+ },
+ "rummodebad": {
+  "SOBS_RUM_CLIENT_AUTH_MODE": "bogus"
+ },
+ "rumnokey": {
+  "SOBS_RUM_CLIENT_AUTH_MODE": "origin"
+ },
+ "cveview": {},
+ "summaryrich": {},
+ "aiingest": {},
+ "dashauto": {},
+ "ai": {
+  "SOBS_AI_ENDPOINT_URL": "http://127.0.0.1:8788/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1"
+ },
+ "github": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "queryrun": {
+  "SOBS_AI_ENDPOINT_URL": "http://127.0.0.1:8788/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1"
+ },
+ "agentrun": {},
+ "notif": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "notifydispatch": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$",
+  "SOBS_VAPID_PRIVATE_KEY": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgESIzRFVmd4gRIjNEVWZ3iBEiM0RVZneIESIzRFVmd4ihRANCAARB9kj5MzwMoMBeoRI3FUvOmnLUPtEVJ4BQ8uky1TkZfJ_J6vv4CHvqtkuPYZyQ7nV0dFTHvJYnBhfXvlda4orD"
+ },
+ "githubtoken": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "onboardrepos": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "repohealth": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "createrepo": {},
+ "mcpkey": {},
+ "mcpauth": {},
+ "mcptools": {},
+ "aichat": {},
+ "aiexport2": {},
+ "tracedetail": {},
+ "tracedetailerr": {},
+ "incidentmatch": {},
+ "dashview": {},
+ "chartedit": {},
+ "feedback": {},
+ "execute": {},
+ "notifcheck": {},
+ "notifeval": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "notifgen": {},
+ "dmprune": {},
+ "dmbackup": {},
+ "dmcov": {},
+ "dmsecret": {
+  "SOBS_SETTINGS_ENCRYPTION_KEY": "sobs-parity-dm-secret-key"
+ },
+ "k8s": {
+  "SOBS_KUBERNETES_ENABLED": "1"
+ },
+ "k8srich": {
+  "SOBS_KUBERNETES_ENABLED": "1"
+ },
+ "k8sprom": {
+  "SOBS_KUBERNETES_ENABLED": "1"
+ },
+ "repoapp": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "appreg": {
+  "SOBS_APP_REGISTRY_SEED_JSON": "{\"apps\": [\"not-a-dict-skipped\", {\"name\": \"\", \"slug\": \"empty-name-skipped\"}, {\"id\": \"a1000000000000000000000000000001\", \"name\": \"Alpha Service\", \"slug\": \"alpha-service\", \"ownerTeam\": \"payments\", \"repoUrl\": \"https://github.com/acme/alpha\", \"defaultEnvironment\": \"production\", \"enabled\": true, \"metadata\": {}, \"releases\": [\"bad-release-skipped\", {\"commitSha\": \"no-version-skipped\"}, {\"id\": \"a2000000000000000000000000000001\", \"version\": \"2.1.0\", \"commitSha\": \"c0ffee01\", \"buildId\": \"build-1001\", \"environment\": \"production\", \"releasedAt\": \"2024-01-03 03:00:00.000000\", \"metadata\": {}, \"artifacts\": [\"bad-artifact-skipped\", {\"name\": \"no-type-skipped\"}, {\"id\": \"a3000000000000000000000000000001\", \"artifactType\": \"container-image\", \"name\": \"alpha-image\", \"contentType\": \"application/vnd.oci.image.manifest.v1+json\", \"size\": 10485760, \"storageRef\": \"oci://registry/acme/alpha:2.1.0\", \"checksumSha256\": \"1111111111111111111111111111111111111111111111111111111111111111\", \"platform\": \"linux\", \"architecture\": \"amd64\", \"metadata\": {}, \"uploadedAt\": \"2024-01-03 03:10:00.000000\"}, {\"id\": \"a3000000000000000000000000000002\", \"artifactType\": \"sbom\", \"name\": \"alpha-sbom\", \"contentType\": \"application/spdx+json\", \"size\": 4096, \"storageRef\": \"oci://registry/acme/alpha-sbom:2.1.0\", \"checksumSha256\": \"2222222222222222222222222222222222222222222222222222222222222222\", \"platform\": \"\", \"architecture\": \"\", \"metadata\": {}, \"uploadedAt\": \"2024-01-03 03:05:00.000000\"}]}, {\"id\": \"a2000000000000000000000000000002\", \"version\": \"2.0.0\", \"commitSha\": \"c0ffee00\", \"buildId\": \"build-1000\", \"environment\": \"production\", \"releasedAt\": \"2024-01-02 03:00:00.000000\", \"metadata\": {}, \"artifacts\": \"not-a-list-skipped\"}]}, {\"id\": \"a1000000000000000000000000000002\", \"name\": \"Beta Worker\", \"slug\": \"beta-worker\", \"ownerTeam\": \"data\", \"repoUrl\": \"https://github.com/acme/beta\", \"defaultEnvironment\": \"staging\", \"enabled\": true, \"metadata\": {}, \"releases\": \"not-a-list-skipped\"}]}"
+ },
+ "cveosv": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "cvescan": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "otlpingest": {},
+ "tagauto": {},
+ "tagautorich": {},
+ "dashboardautorich": {},
+ "metricsauto": {},
+ "seasonalauto": {},
+ "metricsrich": {},
+ "rumvitals": {},
+ "webtraffic": {},
+ "rawspanbig": {},
+ "tagsuggest": {},
+ "onboard": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "onbupdate": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "cvebackfill": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "depsrich": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "lockfiles": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "cveactions": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "refine": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/refine/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "refinerepair": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/refinerepair/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "agenttrigger": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "agentflow": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "agentctx": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "agentcopilot": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "notifagent": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "notifagentmiss": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "anomalycheck": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "issuesraise": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_DLP_ENDPOINT_URL": "http://sobs-ai.mock/dlp/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "issuereuse": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "issuereuse2": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "issuecreateerr": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/agent/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/agent-guard/v1",
+  "SOBS_AI_DLP_ENDPOINT_URL": "http://sobs-ai.mock/dlp/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "onbupdateerr": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "workitems": {
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aibuild": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuild/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aibuildspec": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildspec/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aibuildnamed": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildnamed/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aibuildrepair": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aibuildrepair/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "queryrunchart": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/queryrunchart/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/queryrunchart-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aihelper": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelper/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelper-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "ciauth": {},
+ "aihelpermem": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermem/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermem-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aihelpermemcons": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aihelpermemcons-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitools": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitools/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitools-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolsrich": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsrich/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsrich-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-tool-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "dmttl": {},
+ "regexlogs": {},
+ "regextraces": {},
+ "regexrum": {},
+ "regexerrors": {},
+ "regexmetrics": {},
+ "enrichlibs": {},
+ "rumasset": {},
+ "rumassetupload": {
+  "SOBS_RUM_ASSET_SIGNING_KEY": "sobs-parity-rum-asset-signing-key"
+ },
+ "ask": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ask/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/ask-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguard": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguard/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguard-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardllama": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "llama-guard-3-8b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "vannarepair": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/vannarepair-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "askrepair": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/askrepair/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/askrepair-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "rumauthmap": {
+  "SOBS_RUM_CLIENT_AUTH_MODE": "origin",
+  "SOBS_RUM_CLIENT_SIGNING_KEY": "parity-rum-signing-key",
+  "SOBS_SOURCE_MAP_ENABLE": "1",
+  "SOBS_SOURCE_MAP_DIR": "/Users/abartrim/Documents/dev/sobs/.claude/worktrees/sleepy-einstein-f55ddb/migration/fixtures/sourcemaps"
+ },
+ "authbasic": {
+  "SOBS_BASIC_AUTH_USERNAME": "sobs",
+  "SOBS_BASIC_AUTH_PASSWORD": "secret",
+  "SOBS_CSRF_ORIGIN_CHECK": "1"
+ },
+ "authexternal": {
+  "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauth",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "authextfail": {
+  "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauthbad",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "authinvalid": {
+  "SOBS_BASIC_AUTH_USERNAME": "sobs",
+  "SOBS_BASIC_AUTH_PASSWORD": "secret",
+  "SOBS_EXTERNAL_AUTH_URL": "http://sobs-ai.mock/extauth"
+ },
+ "llmguarderr": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/llmguarderr/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/llmguarderr-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "llmguardempty": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/llmguardempty/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/llmguardempty-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolsempty": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsempty/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsempty-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolsunsupported": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsunsupported/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsunsupported-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolsalt": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsalt/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsalt-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolscrosspage": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolscrosspage/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolscrosspage-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiformfilters": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiformfilters/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiformfilters-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiformfiltersblock": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiformfiltersblock/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiformfiltersblock-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aitoolsdefault": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsdefault/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aitoolsdefault-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardossempty": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossempty/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossempty-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardossbool": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossbool/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossbool-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardossstr": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstr/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstr-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardossstrafe": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstrafe/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardossstrafe-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardruleids": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardruleids/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardruleids-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardembedjson": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardembedjson/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardembedjson-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiheuristic": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiheuristic/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiheuristic-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "sobs-guard-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "ainoguard": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/ainoguard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardbenigno": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigno/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigno-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardbenignav": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenignav/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenignav-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardbenigns8": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigns8/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardbenigns8-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardinvalidcat": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardinvalidcat/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardinvalidcat-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardllama20": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama20/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardllama20-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "llama-guard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardnocat": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardnocat/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardnocat-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aiguardplaintext": {
+  "SOBS_AI_ENDPOINT_URL": "http://sobs-ai.mock/aiguardplaintext/v1",
+  "SOBS_AI_GUARD_ENDPOINT_URL": "http://sobs-ai.mock/aiguardplaintext-guard/v1",
+  "SOBS_AI_MODEL": "sobs-parity-model",
+  "SOBS_AI_GUARD_MODEL": "gpt-oss-safeguard-20b",
+  "SOBS_QUERY_PAGE_ENABLED": "1",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ },
+ "aisecret": {
+  "SOBS_SETTINGS_ENCRYPTION_KEY": "parity-fixed-encryption-key",
+  "SOBS_UPSTREAM_FIXTURES": "$UPSTREAM_FIXTURES$"
+ }
+}

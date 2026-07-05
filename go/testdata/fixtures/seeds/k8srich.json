@@ -1,0 +1,437 @@
+{
+"otel_metrics_gauge": [
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.container.restart_count",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.pod.name": "api-1",
+"k8s.pod.phase": "Failed",
+"k8s.node.name": "node-b"
+},
+"Value": 3,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.available",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.deployment.name": "web"
+},
+"Value": 3,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.available",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.deployment.name": "api"
+},
+"Value": 1,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.desired",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.deployment.name": "web"
+},
+"Value": 3,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.desired",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.deployment.name": "api"
+},
+"Value": 2,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.deployment.name": "web"
+},
+"Value": 3,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.deployment.name": "api"
+},
+"Value": 1,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.updated",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.deployment.name": "web"
+},
+"Value": 3,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.updated",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.deployment.name": "api"
+},
+"Value": 2,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.condition_ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-a",
+"k8s.kubelet.version": "v1.29.1"
+},
+"Value": 1,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.condition_ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-b",
+"k8s.kubelet.version": "v1.29.1"
+},
+"Value": 0,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.cpu.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-a"
+},
+"Value": 0.5,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.cpu.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-b"
+},
+"Value": 0.9,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.memory.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-a"
+},
+"Value": 2000000000,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.node.memory.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.node.name": "node-b"
+},
+"Value": 3000000000,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.cpu.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.pod.name": "web-1",
+"k8s.pod.phase": "Running",
+"k8s.node.name": "node-a"
+},
+"Value": 0.25,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.cpu.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.pod.name": "api-1",
+"k8s.pod.phase": "Failed",
+"k8s.node.name": "node-b"
+},
+"Value": 0.75,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.memory.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.pod.name": "web-1",
+"k8s.pod.phase": "Running",
+"k8s.node.name": "node-a"
+},
+"Value": 500000000,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.memory.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.pod.name": "api-1",
+"k8s.pod.phase": "Failed",
+"k8s.node.name": "node-b"
+},
+"Value": 800000000,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.status_ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "alpha",
+"k8s.pod.name": "web-1",
+"k8s.pod.phase": "Running",
+"k8s.node.name": "node-a"
+},
+"Value": 1,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:06:04.000000000",
+"TimeUnixMs": "2026-07-05 10:06:04",
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.status_ready",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "beta",
+"k8s.pod.name": "api-1",
+"k8s.pod.phase": "Failed",
+"k8s.node.name": "node-b"
+},
+"Value": 0,
+"Flags": 0,
+"AttrFingerprint": ""
+}
+],
+"sobs_app_settings": [
+{
+"Key": "kubernetes.enabled",
+"Value": "1",
+"UpdatedAt": "2024-01-02 03:00:00.000"
+}
+],
+"otel_metrics_1m_agg": [
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.node.condition_ready",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 0.5,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.node.cpu.usage",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 0.7,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.available",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 2,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.updated",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 2.5,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.container.restart_count",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 3,
+"SampleCount": 1
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.cpu.usage",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 0.5,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.memory.usage",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 650000000,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.ready",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 2,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.pod.status_ready",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 0.5,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.deployment.desired",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 2.5,
+"SampleCount": 2
+},
+{
+"ServiceName": "k8s",
+"MetricName": "k8s.node.memory.usage",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:06:00",
+"Value": 2500000000,
+"SampleCount": 2
+}
+]
+}

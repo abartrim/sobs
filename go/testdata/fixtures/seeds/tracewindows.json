@@ -1,0 +1,172 @@
+{
+"otel_metrics_gauge": [
+{
+"TimeUnix": "2026-07-05 10:36:00.000000000",
+"TimeUnixMs": "2026-07-05 10:36:00",
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.cpu.utilization",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "shop",
+"k8s.pod.name": "cart-7d",
+"k8s.node.name": "node-a",
+"k8s.deployment.name": "cart"
+},
+"Value": 45,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:36:00.000000000",
+"TimeUnixMs": "2026-07-05 10:36:00",
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.memory.usage",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "shop",
+"k8s.pod.name": "cart-7d",
+"k8s.node.name": "node-a",
+"k8s.deployment.name": "cart"
+},
+"Value": 536870912,
+"Flags": 0,
+"AttrFingerprint": ""
+},
+{
+"TimeUnix": "2026-07-05 10:36:00.000000000",
+"TimeUnixMs": "2026-07-05 10:36:00",
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.status_phase",
+"MetricDescription": "",
+"MetricUnit": "",
+"Attributes": {
+"k8s.namespace.name": "shop",
+"k8s.pod.name": "cart-7d",
+"k8s.node.name": "node-a",
+"k8s.deployment.name": "cart"
+},
+"Value": 1,
+"Flags": 0,
+"AttrFingerprint": ""
+}
+],
+"otel_traces": [
+{
+"Timestamp": "2026-07-05 10:36:00.000000000",
+"TraceId": "cccc5555dddd6666eeee7777ffff8888",
+"SpanId": "cccc000000000002",
+"ParentSpanId": "",
+"TraceState": "",
+"SpanName": "GET /cart",
+"SpanKind": "",
+"ServiceName": "cart-api",
+"ResourceAttributes": {},
+"ScopeName": "",
+"ScopeVersion": "",
+"SpanAttributes": {
+"http.method": "GET",
+"http.url": "/cart",
+"http.status_code": "200",
+"k8s.namespace.name": "shop",
+"k8s.pod.name": "cart-7d",
+"k8s.node.name": "node-a",
+"k8s.deployment.name": "cart"
+},
+"Duration": 80000000,
+"StatusCode": "STATUS_CODE_OK",
+"StatusMessage": "",
+"Events.Timestamp": [],
+"Events.Name": [],
+"Events.Attributes": [],
+"Links.TraceId": [],
+"Links.SpanId": [],
+"Links.TraceState": [],
+"Links.Attributes": []
+}
+],
+"sobs_raw_window_copy_state": [
+{
+"WindowId": "cccc5555dddd6666eeee7777ffffwww1",
+"SourceTable": "otel_metrics_gauge",
+"LastCopiedAt": "2026-07-05 11:06:52.072314000",
+"Version": 1000
+},
+{
+"WindowId": "cccc5555dddd6666eeee7777ffffwww1",
+"SourceTable": "otel_metrics_histogram",
+"LastCopiedAt": "2026-07-05 11:06:52.076771000",
+"Version": 1000
+},
+{
+"WindowId": "cccc5555dddd6666eeee7777ffffwww1",
+"SourceTable": "otel_metrics_sum",
+"LastCopiedAt": "2026-07-05 11:06:52.074566000",
+"Version": 1000
+},
+{
+"WindowId": "cccc5555dddd6666eeee7777ffffwww2",
+"SourceTable": "otel_metrics_gauge",
+"LastCopiedAt": "2026-07-05 11:06:52.078956000",
+"Version": 1000
+}
+],
+"sobs_raw_windows": [
+{
+"Id": "cccc5555dddd6666eeee7777ffffwww1",
+"SignalTs": "2026-07-05 10:36:00.000000000",
+"WindowStart": "2026-07-05 10:31:00.000000000",
+"WindowEnd": "2026-07-05 10:41:00.000000000",
+"SignalType": "deploy",
+"SignalRef": "cart@v2",
+"ServiceName": "cart-api",
+"Namespace": "shop",
+"NodeName": "node-a",
+"CreatedAt": "2026-07-05 11:06:52.067109000",
+"Version": 1000
+},
+{
+"Id": "cccc5555dddd6666eeee7777ffffwww2",
+"SignalTs": "2026-07-05 10:36:00.000000000",
+"WindowStart": "2026-07-05 10:36:00.020000000",
+"WindowEnd": "2026-07-05 10:36:00.060000000",
+"SignalType": "anomaly",
+"SignalRef": "latency-p99",
+"ServiceName": "",
+"Namespace": "",
+"NodeName": "",
+"CreatedAt": "2026-07-05 11:06:52.069893000",
+"Version": 1000
+}
+],
+"otel_metrics_1m_agg": [
+{
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.cpu.utilization",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:36:00",
+"Value": 45,
+"SampleCount": 1
+},
+{
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.status_phase",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:36:00",
+"Value": 1,
+"SampleCount": 1
+},
+{
+"ServiceName": "cart-api",
+"MetricName": "k8s.pod.memory.usage",
+"AttrFingerprint": "",
+"MetricKind": "gauge",
+"MinuteBucket": "2026-07-05 10:36:00",
+"Value": 536870912,
+"SampleCount": 1
+}
+]
+}

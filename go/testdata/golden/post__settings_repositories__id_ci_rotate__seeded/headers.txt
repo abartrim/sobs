@@ -1,0 +1,10 @@
+content-type: text/html; charset=utf-8
+Content-Length: 231
+location: /settings/repositories
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'
+set-cookie: sobs_session=.eJx9jtFqwkAQRX9lmKcKRjZBA41PIhEsCIWKpRRZ4mbWDLW7S2ZTDSH_3tAP6H25cOAe7oCGdeik0VVg_UW9DreKnb70EwhYDGhT9V9SLFD8RfTkKb-PHZXWf5i8ez692MOyVofjbrfKyjzXyQrHOWp7q6QhweJzQIhToXTGkAjOcbsHdleSCJvXPUxvoPWxilSD9S28c32lCG_U_rAheKJH4JYEMpUtE5UlKp0tYOtDD7Ghv7Xz9zVwBBaQxt8deGdogefxPP4C299Ojw.ZZN9JQ.cU9xCLPo5WKAeSIFcohQMsTxBuE; HttpOnly; Path=/; SameSite=Lax
+vary: Cookie

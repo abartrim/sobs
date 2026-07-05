@@ -1,0 +1,11 @@
+{
+  "status": 200,
+  "json": {
+    "full_name": "testowner/demo-svc",
+    "html_url": "https://github.com/testowner/demo-svc",
+    "name": "demo-svc",
+    "default_branch": "main",
+    "visibility": "public",
+    "description": "A demo service for onboarding"
+  }
+}

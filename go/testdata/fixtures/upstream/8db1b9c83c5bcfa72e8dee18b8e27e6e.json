@@ -1,0 +1,9 @@
+{
+    "status": 200,
+    "json": {
+        "name": "package-lock.json",
+        "path": "package-lock.json",
+        "encoding": "base64",
+        "content": "eyJuYW1lIjoibnBtLWFwcCIsImxvY2tmaWxlVmVyc2lvbiI6MSwiZGVwZW5kZW5jaWVzIjp7ImV4cHJlc3MiOnsidmVyc2lvbiI6IjQuMTguMiJ9LCJsb2Rhc2giOnsidmVyc2lvbiI6IjQuMTcuMjEifSwibm8tdmVyc2lvbiI6eyJyZXNvbHZlZCI6IngifSwiYmFkLWVudHJ5Ijoibm90LWEtZGljdCIsIkV4cHJlc3MiOnsidmVyc2lvbiI6IjQuMTguMiJ9LCJjaGFsayI6eyJ2ZXJzaW9uIjoiNS4zLjAifX19"
+    }
+}

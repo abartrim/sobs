@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "{\"violation\": 1, \"policy_category\": \"S15\", \"rule_ids\": [], \"confidence\": \"high\", \"rationale\": \"Unknown policy.\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 18}}}

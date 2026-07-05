@@ -1,0 +1,23 @@
+columns substreams version: 1
+7 columns:
+2 substreams for column `Id`:
+	Id.size
+	Id
+2 substreams for column `Name`:
+	Name.size
+	Name
+2 substreams for column `Description`:
+	Description.size
+	Description
+3 substreams for column `PageType`:
+	PageType.dict_prefix
+	PageType.dict
+	PageType
+2 substreams for column `FiltersJson`:
+	FiltersJson.size
+	FiltersJson
+2 substreams for column `IsDeleted`:
+	IsDeleted.sparse.idx
+	IsDeleted
+1 substreams for column `Version`:
+	Version

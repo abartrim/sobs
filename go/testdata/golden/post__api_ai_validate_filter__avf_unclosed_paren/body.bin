@@ -1,0 +1,1 @@
+{"issues":[{"level":"error","message":"Unclosed '(' in filter."},{"level":"error","message":"Syntax error: failed at position 33 ((): ((ServiceName = 'x') AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '' OR SpanAttributes['gen_ai.operation.name'] != ''... Unmatched parentheses: (. (SYNTAX_ERROR)"}],"normalized":"","ok":false}

@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "{\"series\":[{\"type\":\"bar\"}],\"title\":{\"text\":\"Refined chart\"}}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 20}}}

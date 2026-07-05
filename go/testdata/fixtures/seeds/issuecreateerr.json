@@ -1,0 +1,16 @@
+{
+"sobs_ai_settings": [
+{
+"Key": "ai.github_repo",
+"Value": "acme/issue-err",
+"IsDeleted": 0,
+"Version": 1704164644000
+},
+{
+"Key": "ai.github_token",
+"Value": "ghp_parity_token",
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+]
+}

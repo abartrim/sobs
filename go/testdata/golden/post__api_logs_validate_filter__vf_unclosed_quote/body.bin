@@ -1,0 +1,1 @@
+{"issues":[{"level":"error","message":"Unclosed single quote in filter."},{"level":"error","message":"Single quoted string is not closed: Syntax error: failed at position 45 ('x LIMIT 1): 'x LIMIT 1. . (SYNTAX_ERROR)"}],"normalized":"","ok":false}
