@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": null}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 5, "completion_tokens": 1}}}

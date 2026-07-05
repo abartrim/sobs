@@ -1,1 +1,0 @@
-{"country_counts":[{"name":"United States","value":5},{"name":"Australia","value":2}],"geo_enabled":true,"ip_details":[{"count":4,"country":"United States","country_code":"US","ip":"8.8.8.8"},{"count":2,"country":"Australia","country_code":"AU","ip":"1.1.1.1"},{"count":1,"country":"United States","country_code":"US","ip":"9.9.9.9"}],"ok":true}

@@ -1,1 +1,0 @@
-{"columns":["time","value","sample_count","baseline_mean","baseline_stddev","baseline_lower","baseline_upper","anomaly_score","anomaly_state","metric_kind","attr_fp"],"metric":"nonexistent-metric","rows":[],"service":"nonexistent-svc"}

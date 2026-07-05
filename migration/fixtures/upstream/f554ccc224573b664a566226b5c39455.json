@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "{\"violation\": true, \"confidence\": \"high\", \"rationale\": \"Content violation detected.\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 18}}}

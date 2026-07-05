@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "{\"violation\": 1, \"policy_category\": \"S7\", \"rule_ids\": [], \"confidence\": \"high\", \"rationale\": \"Request targets private data exfiltration.\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 18}}}

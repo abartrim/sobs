@@ -1,1 +1,0 @@
-{"issues":[{"level":"warning","message":"Filter ends with an operator or keyword."},{"level":"error","message":"Syntax error: failed at position 56 (AND): AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '' OR SpanAttributes['gen_ai.operation.name'] != '') LIMIT 1. Expected one of: token, Comma. (SYNTAX_ERROR)"}],"normalized":"","ok":false}

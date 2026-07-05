@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "SELECT count() AS cnt FROM otel_traces"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 8}}}

@@ -1,9 +1,0 @@
-cache-control: no-cache
-service-worker-allowed: /
-content-type: application/javascript; charset=utf-8
-Content-Length: 648
-x-content-type-options: nosniff
-x-frame-options: SAMEORIGIN
-referrer-policy: strict-origin-when-cross-origin
-permissions-policy: camera=(), microphone=(), geolocation=()
-content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'

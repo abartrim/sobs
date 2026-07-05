@@ -1,1 +1,0 @@
-{"error":"page_type must be one of: ai, errors, logs, metrics, rum, traces, web_traffic, work_items"}

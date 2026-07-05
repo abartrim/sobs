@@ -9,9 +9,9 @@
 # Kubernetes is not used here. No kubectl setup is required.
 #
 # Usage:
-#   ./scripts/start_ollama_ai_test.sh
-#   ./scripts/start_ollama_ai_test.sh -- python app.py
-#   OLLAMA_BASE_URL=http://127.0.0.1:11434 ./scripts/start_ollama_ai_test.sh -- .venv/bin/python app.py
+#   ./scripts/start_ollama_ai_test.sh                      # runs go/sobs (build it first)
+#   ./scripts/start_ollama_ai_test.sh -- ./go/sobs
+#   OLLAMA_BASE_URL=http://127.0.0.1:11434 ./scripts/start_ollama_ai_test.sh
 #
 # Optional demo app controls:
 #   START_EXAMPLE_APP=1 (default) launches a local Flask demo app for RUM/replay testing.
@@ -79,10 +79,12 @@ if [[ "${1:-}" == "--" ]]; then
   shift
 fi
 RUN_CMD=("$@")
-RUN_CMD_DEFAULT=0
 if [[ ${#RUN_CMD[@]} -eq 0 ]]; then
-  RUN_CMD=("$SOBS_PYTHON" app.py)
-  RUN_CMD_DEFAULT=1
+  echo "[error] no command given after --." >&2
+  echo "Use ./scripts/start_ollama_ai_test_go.sh instead — it builds the Go binary (with the" >&2
+  echo "right CGO/libchdb setup) and hands off to this script automatically. Or pass an already" >&2
+  echo "-built binary/command directly, e.g. -- ./go/sobs." >&2
+  exit 1
 fi
 
 cleanup() {
@@ -232,13 +234,6 @@ if ! curl -fsS "$OLLAMA_TAGS_URL" >/dev/null 2>&1; then
     echo "Or set SOBS_AI_OPTIONAL=1 to run without a model server." >&2
     exit 1
   fi
-fi
-
-if [[ "$RUN_CMD_DEFAULT" == "1" ]] && curl -fsS http://127.0.0.1:44317/health >/dev/null 2>&1; then
-  echo "[error] SOBS already appears to be running on http://127.0.0.1:44317" >&2
-  echo "Stop the existing instance before running this script with default app startup." >&2
-  echo "Hint: if you only want the demo app, run with '-- echo demo-only' and START_EXAMPLE_APP=1." >&2
-  exit 1
 fi
 
 if [[ "$OLLAMA_PULL_MODELS" == "1" ]]; then

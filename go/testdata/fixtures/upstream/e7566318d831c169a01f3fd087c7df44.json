@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "```sql\nSELECT 'x' AS name, 1 AS value\n```"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 60, "completion_tokens": 12}}}

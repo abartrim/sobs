@@ -66,10 +66,11 @@ func loadManifest(dir string) ([]route, map[string]bool, map[string]map[string]s
 
 // applyExtraFiles writes a profile's non-chdb fixture files (e.g. seed_rumasset's on-disk
 // rum_assets/ blobs — see dump_profile_seeds.py's dump_extra_files) into dataDir, base64-decoded,
-// at the same relative paths they were captured from.
-func applyExtraFiles(filesPath, dataDir string) error {
+// at the same relative paths they were captured from. filesJSON is a profile's
+// "<profile>.files.json" content, read from the seeds archive index.
+func applyExtraFiles(filesJSON []byte, dataDir string) error {
 	var files map[string]string
-	if err := loadJSON(filesPath, &files); err != nil {
+	if err := json.Unmarshal(filesJSON, &files); err != nil {
 		return err
 	}
 	for rel, b64 := range files {
@@ -96,14 +97,15 @@ func loadJSON(path string, v any) error {
 	return json.Unmarshal(b, v)
 }
 
-func readGolden(dir, routeID string) (response, bool) {
-	base := filepath.Join(dir, "golden", routeID)
-	body, err := os.ReadFile(filepath.Join(base, "body.bin"))
-	if err != nil {
+// readGolden looks up a route's frozen golden response from the in-memory index built
+// once (via loadTarGzIndex) from testdata/golden.tar.gz.
+func readGolden(index map[string][]byte, routeID string) (response, bool) {
+	body, ok := index[routeID+"/body.bin"]
+	if !ok {
 		return response{}, false
 	}
-	statusRaw, err := os.ReadFile(filepath.Join(base, "status"))
-	if err != nil {
+	statusRaw, ok := index[routeID+"/status"]
+	if !ok {
 		return response{}, false
 	}
 	status := 0
@@ -113,8 +115,8 @@ func readGolden(dir, routeID string) (response, bool) {
 		}
 		status = status*10 + int(c-'0')
 	}
-	headersRaw, err := os.ReadFile(filepath.Join(base, "headers.txt"))
-	if err != nil {
+	headersRaw, ok := index[routeID+"/headers.txt"]
+	if !ok {
 		return response{}, false
 	}
 	var headers [][2]string

@@ -2,8 +2,8 @@ name: CI
 
 on:
   push:
-    # go-main is the migration integration branch ("main" until cutover). Build/test/parity/coverage
-    # run on it, but the publish/release jobs (docker, register-sobs-release, cleanup-ghcr) stay gated
+    # go-main is the migration integration branch ("main" until cutover). Build/test/lint run on
+    # it, but the publish/release jobs (docker, register-sobs-release, cleanup-ghcr) stay gated
     # to main/master/tags via their own `if:` — so go-main never publishes artifacts.
     branches: [main, master, go-main]
     tags: ['v*']
@@ -20,18 +20,18 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Large wheels (chdb_core ~150MB) intermittently break mid-download over the restricted-egress
-  # runners (urllib3 IncompleteRead -> the native Tests/Integration jobs fail while the Dockerized
-  # Go/parity jobs are unaffected). More retries + a longer per-read timeout let pip self-recover;
-  # the in-cluster /cache/pip then caches the wheel so subsequent runs skip the download entirely.
+  # The only remaining pip consumer is the lint job (black/isort/flake8/djlint — small pure-Python
+  # packages over the restricted-egress runners' in-cluster devpi proxy). More retries + a longer
+  # per-read timeout let pip self-recover from any transient proxy hiccup; the in-cluster /cache/pip
+  # then caches the wheels so subsequent runs skip the download entirely.
   PIP_RETRIES: "15"
   PIP_DEFAULT_TIMEOUT: "120"
-  # actions/setup-python's own `pip install --upgrade pip` (and any explicit pip install/pip-audit
-  # step) resolves through the in-cluster devpi proxy over plain HTTP (no TLS cert for a
-  # ClusterIP-only hostname) — pip treats a non-HTTPS index as untrusted by default and silently
-  # drops it ("not a trusted or secure host ... is being ignored"), which then reads as "no matching
-  # distribution" for every package including pip itself. Explicitly trusting the hostname (not
-  # disabling verification generally) restores use of the cache without any external egress.
+  # actions/setup-python's own `pip install --upgrade pip` (and the lint job's explicit pip install)
+  # resolves through the in-cluster devpi proxy over plain HTTP (no TLS cert for a ClusterIP-only
+  # hostname) — pip treats a non-HTTPS index as untrusted by default and silently drops it ("not a
+  # trusted or secure host ... is being ignored"), which then reads as "no matching distribution"
+  # for every package including pip itself. Explicitly trusting the hostname (not disabling
+  # verification generally) restores use of the cache without any external egress.
   PIP_TRUSTED_HOST: devpi.ci-cache.svc.cluster.local
   # Go modules resolve through the in-cluster Athens proxy (ci-cache, ClusterIP/IPv4) — no per-runner
   # internet egress and a shared persistent module cache. GOSUMDB=off: the committed go.sum verifies
@@ -49,16 +49,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Audit Python dependencies
-        run: pip-audit -r requirements.txt --strict
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -104,67 +94,6 @@ jobs:
           push: false
           cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
-
-  parity:
-    name: Go Parity + Oracle Coverage (byte-diff + coverage floor)
-    runs-on: sobs-runners
-    # Independent of go-build-test (run_parity_ci.py builds its own Go binary) — run in parallel.
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
-            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
-              http = true
-            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
-              http = true
-
-      - name: Byte-diff Go vs oracle + oracle coverage floor gate + Go coverage (Dockerfile.parity-ci)
-        # run_parity_ci.py runs as a build step in Dockerfile.parity-ci (Ubuntu 26.04 + Python 3.14
-        # + Go + libchdb). It captures every profile ONCE under coverage.py, then byte-diffs the Go
-        # replay against the goldens AND enforces the app.py coverage floor — folding in what used to
-        # be a separate, redundant oracle-coverage job (a second full capture; coverage.py never
-        # changes output, so the goldens are identical). Toolchains/libchdb/pip deps/module graph are
-        # cached layers; in-container run also avoids the chdb-under-runner-agent SIGSEGV.
-        # SOBS_GOCOVER instruments the SAME replay so it also measures Go integration coverage (no
-        # second replay); the cover-export stage emits the profile + 0%-funcs report via type=local.
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.parity-ci
-          # Instrument the replay for Go coverage ONLY on go-main pushes (post-merge) — keeps PR
-          # parity at baseline speed; empty on PRs (the report script is tolerant).
-          build-args: |
-            GOCOVER=${{ github.ref == 'refs/heads/go-main' && '1' || '' }}
-          target: cover-export
-          outputs: type=local,dest=go-cover
-          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache
-          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-parity-buildcache,mode=max
-
-      - name: Publish Go coverage report to job summary
-        if: always() && github.ref == 'refs/heads/go-main'
-        run: |
-          {
-            echo "## Go integration coverage (corpus — byte-parity replay)"
-            echo '```'
-            head -n 45 go-cover/go_corpus_0pct.txt 2>/dev/null || echo "(no Go coverage report produced this run)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload Go coverage artifacts
-        if: always() && github.ref == 'refs/heads/go-main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-coverage
-          path: go-cover/
-          if-no-files-found: warn
 
   docker-go-smoke:
     name: Go Image Build & Smoke
@@ -262,134 +191,27 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install linting dependencies
-        run: pip install black isort flake8 mypy djlint flask
+        run: pip install black isort flake8 djlint
 
       - name: Run black
-        run: black --check .
+        run: black --check scripts/
 
       - name: Run isort
-        run: isort --check-only .
+        run: isort --check-only scripts/
 
       - name: Run flake8
-        run: flake8 .
-
-      - name: Run mypy
-        run: mypy app.py
+        run: flake8 scripts/
 
       - name: Run djlint
         run: python3 scripts/run_djlint.py --check --lint templates
 
-  test:
-    name: Tests
-    runs-on: sobs-runners
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
-            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
-              http = true
-            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
-              http = true
-
-      - name: Build the Python CI deps image (chdb + browsers baked into cached layers)
-        run: |
-          docker buildx build -f Dockerfile.ci-python \
-            --cache-from type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache \
-            --cache-to type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache,mode=max \
-            --load -t sobs-ci-python:local .
-
-      - name: Run unit tests with coverage + diff-cover gate
-        # Runs inside the deps image (chdb baked in) against the bind-mounted workspace, so
-        # coverage.xml and .git stay on the shared runner/dind volume for the gate + artifact.
-        # SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise trips
-        # inside the nested dind container and makes memory-limited queries misbehave (the same
-        # flag the parity build and the integration job set).
-        run: |
-          docker run --rm -e SOBS_CHDB_MAX_SERVER_MB=0 -v "$PWD:/app" -w /app sobs-ci-python:local bash -c '
-            set -euo pipefail
-            git config --global --add safe.directory /app
-            echo "SOBS/chDB env snapshot"; env | sort | grep -E "^(SOBS_|CHDB_)" || true
-            pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
-              --cov=app --cov=masking --cov=mcp \
-              --cov-report=term-missing \
-              --cov-report=xml:coverage.xml
-            diff-cover coverage.xml --compare-branch=origin/main --fail-under=90'
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: coverage.xml
-          if-no-files-found: warn
-
-  integration:
-    name: Integration Tests
-    runs-on: sobs-runners
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
-            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
-              http = true
-            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
-              http = true
-
-      - name: Build the Python CI deps image (chdb + browsers baked into cached layers)
-        run: |
-          docker buildx build -f Dockerfile.ci-python \
-            --cache-from type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache \
-            --cache-to type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-python:buildcache,mode=max \
-            --load -t sobs-ci-python:local .
-
-      - name: Run integration tests
-        # Runs inside the deps image (chdb + chromium baked in) against the bind-mounted workspace;
-        # tests/screenshots land on the shared runner/dind volume for the artifact upload below.
-        # --shm-size lifts the default 64 MB /dev/shm so headless chromium does not crash.
-        run: |
-          docker run --rm --shm-size=2g \
-            -e SOBS_UIQA_SEED_TOTAL=64 \
-            -e SOBS_UIQA_SEED_WORKERS=8 \
-            -e SOBS_SCREENSHOT_SEED_TOTAL=240 \
-            -e SOBS_SCREENSHOT_SEED_WORKERS=24 \
-            -e SOBS_CHDB_MAX_SERVER_MB=0 \
-            -v "$PWD:/app" -w /app sobs-ci-python:local \
-            pytest tests/test_integration.py -v
-
-      - name: Upload screenshots
-        # Only on failure — screenshots are a debugging aid for failed integration
-        # runs; uploading 2.8MB every green run filled the account artifact quota.
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: integration-screenshots
-          path: tests/screenshots/
-          if-no-files-found: warn
-          retention-days: 5
-
   docker:
     name: Build & Push Docker Image (Go)
     runs-on: sobs-runners
-    # The published image is the Go server (the cutover artifact). Gate on the Go pipeline + the
-    # Python oracle suite that proves parity, so a release only ships a parity-verified Go build.
-    needs: [integration, parity, docker-go-smoke]
+    # The published image is the Go server (the cutover artifact). Gate on the Go pipeline —
+    # go-build-test includes the golden-corpus replay (former parity job's role) — so a release
+    # only ships a build that passed both unit tests and the byte-parity replay.
+    needs: [go-build-test, docker-go-smoke]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read

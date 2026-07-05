@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "{\"violation\": true, \"policy_category\": \"S3\", \"rule_ids\": [], \"confidence\": \"high\", \"rationale\": \"Explicit sexual content.\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 20}}}

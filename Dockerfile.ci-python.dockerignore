@@ -1,5 +1,0 @@
-# The image only needs the two requirements files (the test code is bind-mounted at run time),
-# so send a minimal build context — not the whole repo / .git history.
-*
-!requirements.txt
-!requirements-integration.txt

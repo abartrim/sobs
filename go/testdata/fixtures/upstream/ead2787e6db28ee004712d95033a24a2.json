@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "SELECT nonexistent_column_xyz FROM otel_logs"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 60, "completion_tokens": 12}}}

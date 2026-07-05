@@ -104,10 +104,11 @@ docker compose up -d
 cd go && go build -o sobs ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
 ```
 
-> **Architecture note.** SOBS now ships as a **Go** server (`ghcr.io/abartrim/sobs`). The original
-> Python/Quart app (`app.py`) is retained as the frozen **parity oracle** the Go port is byte-diffed
-> against in CI — it is no longer the published runtime. See [`go/README.md`](go/README.md) and the
-> [migration notes](migration/README.md).
+> **Architecture note.** SOBS is a **Go** server (`ghcr.io/abartrim/sobs`). It's the result of a
+> from-scratch Go reimplementation of the original Python/Quart app, verified byte-for-byte against
+> that app's behavior via a frozen golden corpus during migration; the Python app has since been
+> retired and deleted. That verification suite lives on as a Go-native regression test — see
+> [`go/README.md`](go/README.md).
 >
 > **Runtime feature status.** Beyond byte-parity, the Go server honors the full runtime config
 > surface: UI/ingest auth, settings at-rest encryption, the async write-queue + backpressure,
@@ -981,9 +982,9 @@ Or as a **sidecar** – see `k8s/sidecar.yaml` for instructions.
 For most users, the easiest manual AI setup is local Ollama.
 
 > The `start_ollama_ai_test.sh` / `start_spark_ai_test.sh` helpers export the `SOBS_AI_*` env vars
-> and then run a command you pass after `--` (default `python app.py`, the oracle). The Go server
-> honors the same `SOBS_AI_*` variables, so you can point them at the Go binary instead, e.g.
-> `./scripts/start_ollama_ai_test.sh -- ./go/sobs`.
+> and then run a command you pass after `--` (default: the Go binary at `go/sobs` — build it first
+> with `cd go && go build -o sobs ./cmd/sobs`). Pass a different command after `--` to override,
+> e.g. `./scripts/start_ollama_ai_test.sh -- ./some/other/sobs`.
 
 1. Start Ollama (separate terminal):
 
@@ -1009,10 +1010,10 @@ Optional model overrides:
 SOBS_AI_MODEL=qwen2.5:7b-instruct \
 SOBS_AI_GUARD_MODEL=qwen2.5:7b-instruct \
 SOBS_AI_GUARD_THINKING_LEVEL=low \
-./scripts/start_ollama_ai_test.sh -- .venv/bin/python app.py
+./scripts/start_ollama_ai_test.sh
 ```
 
-The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), exports `SOBS_AI_*` env vars, and runs your command (default: `python app.py`).
+The script validates Ollama availability at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), exports `SOBS_AI_*` env vars, and runs your command (default: the `go/sobs` binary).
 
 By default it also starts a local browser demo app for RUM/replay testing at `http://127.0.0.1:5005`.
 You can disable it with `START_EXAMPLE_APP=0`.
@@ -1044,10 +1045,10 @@ LLM_RESOURCE=svc/my-vllm \
 DLP_RESOURCE=svc/my-dlp \
 DLP_SECRET_NAME=my-infra-secrets \
 DLP_SECRET_KEY=dlp-token \
-./scripts/start_spark_ai_test.sh -- .venv/bin/python app.py
+./scripts/start_spark_ai_test.sh
 ```
 
-The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOBS_AI_*` endpoint/model/key env vars for SOBS, and then runs the command you pass (default: `python app.py`).
+The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOBS_AI_*` endpoint/model/key env vars for SOBS, and then runs the command you pass (default: the `go/sobs` binary).
 
 ## Screenshots
 
@@ -1065,29 +1066,17 @@ The script starts local port-forwards for LLM, embeddings, and DLP, exports `SOB
 
 ## Running Tests
 
-The Go server has its own unit tests, and the byte-for-byte **parity** harness diffs the Go
-responses against the frozen Python oracle:
-
 ```bash
 # Go unit tests (chdb-backed tests need the pinned libchdb via CHDB_LIB_PATH; see go/CHDB_PIN.md)
 cd go && go test ./...
 
-# Parity: capture goldens from the Python oracle, replay against the Go server, byte-diff
-python migration/tools/run_parity_ci.py
+# Golden-corpus regression suite: boots the compiled sobs binary and byte-diffs its responses
+# against the frozen corpus (go/testdata/) — the successor to the old Python-parity byte-diff
+CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
 ```
 
-The Python oracle keeps its own test suite (it is the source of truth for parity):
-
-```bash
-pip install -r requirements.txt -r requirements-integration.txt
-pytest tests --ignore=tests/test_integration.py \
-    --cov=app --cov=masking --cov=mcp \
-    --cov-report=term-missing \
-    --cov-report=xml:coverage.xml
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md#coverage) for more details on local
-coverage workflows and the `diff-cover` changed-lines gate.
+See [go/README.md](go/README.md) for more on the golden-corpus suite and CONTRIBUTING.md for
+local development setup.
 
 ## Running Benchmarks
 
@@ -1119,11 +1108,11 @@ Parameters:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup and quality checks.
 
-## Git Pre-Commit Hook (Python oracle + templates)
+## Git Pre-Commit Hook (scripts/ + templates)
 
 This repository includes a version-controlled Git pre-commit hook at `.githooks/pre-commit`.
-It covers the Python parity oracle (`app.py` etc.) and the shared Jinja templates. Go changes are
-gated separately by `gofmt`, `go vet`, and `go test` (run in CI; see [`go/README.md`](go/README.md)).
+It covers the `scripts/` Python helpers and the shared Jinja templates. Go changes are gated
+separately by `gofmt`, `go vet`, and `go test` (run in CI; see [`go/README.md`](go/README.md)).
 
 It runs on staged Python files and performs:
 

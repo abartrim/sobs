@@ -1,9 +1,0 @@
-{
-    "status": 200,
-    "json": {
-        "name": "requirements.txt",
-        "path": "requirements.txt",
-        "encoding": "base64",
-        "content": "IyB0b3AtbGV2ZWwgY29tbWVudCBsaW5lIChza2lwKQoKZmxhc2s9PTIuMy4wClJlcXVlc3RzPT0yLjMxLjAgICMgaW5saW5lIGNvbW1lbnQgc3RyaXAKZGphbmdvPT00LjIuMCA7IHB5dGhvbl92ZXJzaW9uID49ICczLjgnCkZMQVNLPT0yLjMuMApuby12ZXJzaW9uLWxpbmUKPT0xLjAuMAplbXB0eXZlcj09CnB5dGVzdD09Ny40LjAK"
-    }
-}

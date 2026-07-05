@@ -220,11 +220,3 @@ tests/screenshots/
 
 # air (Go hot-reload) build output
 go/tmp/
-
-# oracle coverage artifacts (regenerable via coverage_capture.py)
-migration/coverage_app.json
-.coverage
-.coverage.*
-migration/structural_report.md
-migration/fixtures/fuzz_go_data/
-migration/fixtures/mut_baseline/
