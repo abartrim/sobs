@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "{\"backgroundColor\": \"transparent\", \"xAxis\": {\"type\": \"category\", \"data\": \"{{labels}}\"}, \"yAxis\": {\"type\": \"value\"}, \"series\": [{\"type\": \"bar\", \"data\": \"{{rows}}\"}]}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 100, "completion_tokens": 50}}}

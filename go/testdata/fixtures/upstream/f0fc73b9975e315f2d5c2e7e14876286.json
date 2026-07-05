@@ -1,0 +1,1 @@
+{"status": 200, "json": {"data": {"repository": {"suggestedActors": {"nodes": [{"__typename": "Bot", "login": "copilot-swe-agent", "id": "BOT_kgDOcopilot"}]}}}}}

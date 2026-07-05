@@ -1,0 +1,22 @@
+{
+"sobs_agent_runs": [
+{
+"Id": "a9000000000000000000000000000001",
+"RuleId": "b0000000000000000000000000000a01",
+"RuleName": "Parity Agent Rule",
+"TriggerContext": "error spike on checkout",
+"Status": "completed",
+"GuardDecision": "allow",
+"DlpResult": "clean",
+"Analysis": "Investigated the error spike.",
+"Suggestion": "Roll back the last deploy.",
+"GithubIssueUrl": "",
+"ErrorMessage": "",
+"CreatedAt": "2024-01-02 03:00:00.000000000",
+"CompletedAt": "2024-01-02 03:00:00.000000000",
+"IsDismissed": 0,
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+]
+}

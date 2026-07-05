@@ -1,0 +1,13 @@
+content-type: application/json
+Content-Length: 12
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'
+access-control-allow-origin: http://localhost:5173
+vary: Origin
+access-control-allow-credentials: true
+access-control-allow-methods: POST, OPTIONS
+access-control-allow-headers: Content-Type, Authorization, X-API-Key, X-SOBS-RUM-Client, X-SOBS-RUM-Signature, X-SOBS-RUM-Timestamp, X-SOBS-Asset-Timestamp, X-SOBS-Asset-Signature
+access-control-max-age: 600

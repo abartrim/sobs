@@ -1,0 +1,1 @@
+[{"architecture":"any","artifactType":"sbom","checksumSha256":"cafebabe","contentType":"application/json","id":"c0000000000000000000000000000f06","metadata":{"format":"spdx"},"name":"sbom.spdx.json","platform":"any","releaseId":"c0000000000000000000000000000e05","size":2048,"storageRef":"s3://artifacts/checkout/1.2.0/sbom","uploadedAt":"2024-01-02 03:04:05"}]

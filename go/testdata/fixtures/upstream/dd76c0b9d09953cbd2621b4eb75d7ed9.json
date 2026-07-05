@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "Guard analysis: {\"violation\": 1, \"policy_category\": \"S3\", \"rule_ids\": [], \"confidence\": \"high\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 22}}}

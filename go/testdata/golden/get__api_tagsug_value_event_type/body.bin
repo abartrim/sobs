@@ -1,0 +1,1 @@
+{"field":"event_type","ok":true,"operator":"eq","scope":"tag_rule","suggestions":["exception","request","page_view"],"target":"value"}

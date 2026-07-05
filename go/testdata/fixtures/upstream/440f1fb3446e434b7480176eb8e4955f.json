@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "The content appears to be unsafe based on policy S4"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 24, "completion_tokens": 12}}}

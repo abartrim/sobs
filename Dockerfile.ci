@@ -7,6 +7,11 @@
 # The build+test run INSIDE this container (a fresh process tree). That is REQUIRED for chdb
 # (embedded ClickHouse): its global/static state SIGSEGVs when the GitHub Actions .NET runner agent
 # execs `go test` directly, but is fine in a clean container process.
+#
+# Also copies templates/ and static/ (their own cache layer, independent of go/) — the
+# go/goldenreplay suite boots the real compiled sobs binary as a subprocess with its working
+# directory at the repo root, so the binary's relative template/static-dir defaults need real
+# files on disk, not just the go/ source tree Dockerfile.ci otherwise scopes to.
 FROM ubuntu:26.04 AS build
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -38,12 +43,26 @@ WORKDIR /src/go
 COPY go/go.mod go/go.sum ./
 RUN go mod download
 
+# --- layer: templates/static (busts only when these change, independent of go/) ---
+WORKDIR /src
+COPY templates/ templates/
+COPY static/ static/
+
+WORKDIR /src/go
 # --- layers: source -> gofmt/vet/build/test (busts on any source change) ---
 COPY go/ ./
 RUN gofmt_out="$(gofmt -l .)"; if [ -n "$gofmt_out" ]; then echo "::error::not gofmt-clean:"; echo "$gofmt_out"; exit 1; fi
 RUN go vet ./...
 RUN go build ./...
 RUN go test -p 2 -count=1 ./...
+
+# --- Go-native golden-corpus replay suite (Phase 0 of the Python-removal cutover): replays the
+# frozen corpus in go/testdata/ against this same compiled binary over real HTTP, no Python
+# involved. SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise
+# trips inside the nested dind container under this suite's per-profile concurrency (the same
+# flag the parity job sets for the same reason). ---
+RUN go vet -tags chdb ./goldenreplay/...
+RUN SOBS_CHDB_MAX_SERVER_MB=0 go test -tags chdb -run TestGoldenCorpus -v ./goldenreplay/...
 
 # Tiny final stage so the image (if ever pushed) is trivial; the value is the cached build layers.
 FROM scratch AS result

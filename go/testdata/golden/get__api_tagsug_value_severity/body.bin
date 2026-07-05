@@ -1,0 +1,1 @@
+{"field":"severity","ok":true,"operator":"eq","scope":"tag_rule","suggestions":["ERROR","INFO","WARN"],"target":"value"}

@@ -1,0 +1,35 @@
+columns substreams version: 1
+11 columns:
+2 substreams for column `Id`:
+	Id.size
+	Id
+2 substreams for column `Name`:
+	Name.size
+	Name
+2 substreams for column `Description`:
+	Description.size
+	Description
+3 substreams for column `TriggerType`:
+	TriggerType.dict_prefix
+	TriggerType.dict
+	TriggerType
+3 substreams for column `TriggerRefId`:
+	TriggerRefId.sparse.idx
+	TriggerRefId.size
+	TriggerRefId
+3 substreams for column `TriggerState`:
+	TriggerState.dict_prefix
+	TriggerState.dict
+	TriggerState
+2 substreams for column `Actions`:
+	Actions.size
+	Actions
+1 substreams for column `RateLimitMinutes`:
+	RateLimitMinutes
+1 substreams for column `IsEnabled`:
+	IsEnabled
+2 substreams for column `IsDeleted`:
+	IsDeleted.sparse.idx
+	IsDeleted
+1 substreams for column `Version`:
+	Version

@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"content": "safe"}}], "usage": {"prompt_tokens": 128, "completion_tokens": 2, "thinking_tokens": 0}}}

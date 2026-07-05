@@ -1,0 +1,1 @@
+{"issues":[{"level":"error","message":"Syntax error: failed at position 36 (1): 1) AND (SpanAttributes['gen_ai.provider.name'] != '' OR SpanAttributes['gen_ai.system'] != '' OR SpanAttributes['gen_ai.operation.name'] != '') LIMIT 1. Expected one of: comma or closing bracket, token, DoubleColon, Comma, ClosingRoundB..."}],"normalized":"","ok":false}

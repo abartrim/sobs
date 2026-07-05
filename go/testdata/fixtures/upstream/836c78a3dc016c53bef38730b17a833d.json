@@ -1,0 +1,1 @@
+{"status": 200, "json": {"total_count": 1, "artifacts": [{"id": 8001, "name": "sobs-release-dependency-snapshots", "expired": false, "archive_download_url": "https://api.github.com/repos/acme/widget/actions/artifacts/8001/zip"}]}}

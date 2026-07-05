@@ -1,0 +1,23 @@
+{
+"otel_logs": [
+{
+"Timestamp": "2026-07-05 10:06:31.000000000",
+"TimestampTime": "2026-07-05 10:06:31",
+"TraceId": "",
+"SpanId": "",
+"TraceFlags": 0,
+"SeverityText": "",
+"SeverityNumber": 0,
+"ServiceName": "regex-probe-svc",
+"Body": "sobs-regex-probe-logs-hit",
+"ResourceSchemaUrl": "",
+"ResourceAttributes": {},
+"ScopeSchemaUrl": "",
+"ScopeName": "",
+"ScopeVersion": "",
+"ScopeAttributes": {},
+"LogAttributes": {},
+"EventName": ""
+}
+]
+}

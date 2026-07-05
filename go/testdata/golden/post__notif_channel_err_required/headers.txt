@@ -1,0 +1,10 @@
+content-type: text/html; charset=utf-8
+Content-Length: 233
+location: /settings/notifications
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'
+set-cookie: sobs_session=eyJfZmxhc2hlcyI6W3siIHQiOlsid2FybmluZyIsIkNoYW5uZWwgbmFtZSBpcyByZXF1aXJlZCJdfV19.ZZN9JQ.J37cb7Boi2x-WeKL46jESk73zkM; HttpOnly; Path=/; SameSite=Lax
+vary: Cookie

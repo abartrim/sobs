@@ -1,0 +1,8 @@
+content-type: text/html; charset=utf-8
+allow: POST, OPTIONS
+Content-Length: 153
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'

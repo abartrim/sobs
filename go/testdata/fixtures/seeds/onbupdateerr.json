@@ -1,0 +1,26 @@
+{
+"sobs_ai_settings": [
+{
+"Key": "ai.github_token",
+"Value": "ghp_parity_token",
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+],
+"sobs_apps": [
+{
+"Id": "f2000000000000000000000000000001",
+"Name": "Onboard Err Service",
+"Slug": "onboard-err-service",
+"OwnerTeam": "platform",
+"RepoUrl": "https://github.com/acme/onboard-err",
+"DefaultEnvironment": "prod",
+"Enabled": 1,
+"MetadataJson": "{}",
+"IsDeleted": 0,
+"Version": 1704164644000,
+"CreatedAt": "2024-01-02 03:00:00.000",
+"UpdatedAt": "2024-01-02 03:00:00.000"
+}
+]
+}

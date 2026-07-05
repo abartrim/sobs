@@ -1,0 +1,1 @@
+{"status": 200, "json": {"choices": [{"message": {"role": "assistant", "content": "SELECT 1 AS x"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 10}}}

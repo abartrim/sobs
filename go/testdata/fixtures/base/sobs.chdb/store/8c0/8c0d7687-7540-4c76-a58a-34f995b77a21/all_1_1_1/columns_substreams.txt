@@ -1,0 +1,16 @@
+columns substreams version: 1
+5 columns:
+2 substreams for column `Id`:
+	Id.size
+	Id
+2 substreams for column `Name`:
+	Name.size
+	Name
+2 substreams for column `Description`:
+	Description.size
+	Description
+2 substreams for column `IsDeleted`:
+	IsDeleted.sparse.idx
+	IsDeleted
+1 substreams for column `Version`:
+	Version

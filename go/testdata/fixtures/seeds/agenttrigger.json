@@ -1,0 +1,17 @@
+{
+"sobs_agent_rules": [
+{
+"Id": "e1000000000000000000000000000001",
+"Name": "Parity Analyze Rule",
+"Description": "Analyze-only agent rule for parity.",
+"TriggerType": "manual",
+"TriggerRefId": "",
+"TriggerState": "any",
+"Actions": "analyze",
+"RateLimitMinutes": 60,
+"IsEnabled": 1,
+"IsDeleted": 0,
+"Version": 1704164644000
+}
+]
+}
