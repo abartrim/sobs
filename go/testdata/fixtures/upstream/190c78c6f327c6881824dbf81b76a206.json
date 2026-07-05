@@ -1,8 +1,0 @@
-{
-  "status": 200,
-  "json": [
-    {"name": "zebra-svc", "full_name": "testowner/zebra-svc", "html_url": "https://github.com/testowner/zebra-svc", "private": false, "owner": {"login": "testowner"}},
-    {"name": "Alpha-svc", "full_name": "testowner/Alpha-svc", "html_url": "https://github.com/testowner/Alpha-svc", "private": false, "owner": {"login": "testowner"}},
-    {"name": "mango-svc", "full_name": "testowner/mango-svc", "html_url": "https://github.com/testowner/mango-svc", "private": true, "owner": {"login": "testowner"}}
-  ]
-}

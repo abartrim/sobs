@@ -1,8 +1,0 @@
-content-type: application/json; charset=utf-8
-content-disposition: attachment; filename="sobs_reports_export.json"
-Content-Length: 109
-x-content-type-options: nosniff
-x-frame-options: SAMEORIGIN
-referrer-policy: strict-origin-when-cross-origin
-permissions-policy: camera=(), microphone=(), geolocation=()
-content-security-policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'

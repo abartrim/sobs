@@ -1,1 +1,0 @@
-[{"description":"ERROR-level checkout logs","filters":{"limit":100,"service":"checkout","severity":["ERROR"]},"id":"11111111-0000-4000-8000-0000000000a1","name":"Checkout errors","page_type":"logs"},{"description":"Spans over 250ms","filters":{"min_duration_ms":250},"id":"22222222-0000-4000-8000-0000000000b2","name":"Slow traces","page_type":"traces"}]

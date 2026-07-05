@@ -1,1 +1,0 @@
-{"error":"Invalid deployment 'serverless'. Must be one of: ['baremetal', 'cloud', 'docker', 'kubernetes']","ok":false}

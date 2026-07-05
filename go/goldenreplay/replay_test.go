@@ -101,8 +101,25 @@ func TestGoldenCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upstreamDir := filepath.Join(absTestdata, "fixtures", "upstream")
-	baseFixture := filepath.Join(absTestdata, "fixtures", "base")
+
+	// golden.tar.gz and fixtures/seeds.tar.gz are only ever read as bytes (never need to
+	// exist as real files on disk), so they're decompressed once into in-memory indexes —
+	// see archive.go's loadTarGzIndex. fixtures/base.tar.gz and fixtures/upstream.tar.gz DO
+	// need to be real directories (chdb opens a directory; the server reads upstream mocks
+	// off a directory path), so they stay as archive PATHS, extracted fresh where needed.
+	goldenIndex, err := loadTarGzIndex(filepath.Join(absTestdata, "golden.tar.gz"))
+	if err != nil {
+		t.Fatalf("load golden.tar.gz: %v", err)
+	}
+	seedsIndex, err := loadTarGzIndex(filepath.Join(absTestdata, "fixtures", "seeds.tar.gz"))
+	if err != nil {
+		t.Fatalf("load fixtures/seeds.tar.gz: %v", err)
+	}
+	upstreamDir := filepath.Join(t.TempDir(), "upstream")
+	if err := extractTarGz(filepath.Join(absTestdata, "fixtures", "upstream.tar.gz"), upstreamDir); err != nil {
+		t.Fatalf("extract fixtures/upstream.tar.gz: %v", err)
+	}
+	baseFixture := filepath.Join(absTestdata, "fixtures", "base.tar.gz")
 
 	routes, excluded, profileEnv, err := loadManifest(testdataDir)
 	if err != nil {
@@ -136,7 +153,7 @@ func TestGoldenCorpus(t *testing.T) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			t.Run(profile, func(t *testing.T) {
-				g, r := runProfile(t, profile, byProfile[profile], portBase+i, binary, seeder, libPath, baseFixture, upstreamDir, profileEnv[profile])
+				g, r := runProfile(t, profile, byProfile[profile], portBase+i, binary, seeder, libPath, baseFixture, upstreamDir, profileEnv[profile], goldenIndex, seedsIndex)
 				mu.Lock()
 				green += g
 				red += r
@@ -163,11 +180,11 @@ func setEnvVar(env []string, k, v string) []string {
 	return append(env, k+"="+v)
 }
 
-func runProfile(t *testing.T, profile string, routes []route, port int, binary, seeder, libPath, baseFixture, upstreamDir string, envOverlay map[string]string) (green, red int) {
+func runProfile(t *testing.T, profile string, routes []route, port int, binary, seeder, libPath, baseFixture, upstreamDir string, envOverlay map[string]string, goldenIndex, seedsIndex map[string][]byte) (green, red int) {
 	workdir := t.TempDir()
 	dataDir := filepath.Join(workdir, "data")
-	if err := copyDir(baseFixture, dataDir); err != nil {
-		t.Fatalf("copy base fixture: %v", err)
+	if err := extractTarGz(baseFixture, dataDir); err != nil {
+		t.Fatalf("extract base fixture: %v", err)
 	}
 
 	// pinnedEnv (including TZ) must apply identically to BOTH the seeder and the server: chdb
@@ -180,23 +197,25 @@ func runProfile(t *testing.T, profile string, routes []route, port int, binary, 
 	}
 	baseEnv = setEnvVar(baseEnv, "CHDB_LIB_PATH", libPath)
 
-	if deltaPath := filepath.Join(testdataDir, "fixtures", "seeds", profile+".json"); fileExists(deltaPath) {
-		absDeltaPath, err := filepath.Abs(deltaPath)
-		if err != nil {
-			t.Fatalf("resolve seed path: %v", err)
+	if deltaJSON, ok := seedsIndex[profile+".json"]; ok {
+		// The seeder subprocess takes a file path, so extract this profile's delta to a
+		// temp file first — its own interface is otherwise untouched by the archive move.
+		deltaPath := filepath.Join(workdir, "delta.json")
+		if err := os.WriteFile(deltaPath, deltaJSON, 0o644); err != nil {
+			t.Fatalf("write seed delta for profile %q: %v", profile, err)
 		}
 		// Run as its OWN subprocess (never in-process) — chdb-go's embedded engine has
 		// documented per-process global state that misbehaves under repeated Open/Close
 		// cycles within one long-lived process; a fresh process per profile avoids it.
-		cmd := exec.Command(seeder, dataDir, absDeltaPath)
+		cmd := exec.Command(seeder, dataDir, deltaPath)
 		cmd.Env = baseEnv
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("seed profile %q: %v\n%s", profile, err, out)
 		}
 	}
 
-	if filesPath := filepath.Join(testdataDir, "fixtures", "seeds", profile+".files.json"); fileExists(filesPath) {
-		if err := applyExtraFiles(filesPath, dataDir); err != nil {
+	if filesJSON, ok := seedsIndex[profile+".files.json"]; ok {
+		if err := applyExtraFiles(filesJSON, dataDir); err != nil {
 			t.Fatalf("apply extra files for profile %q: %v", profile, err)
 		}
 	}
@@ -226,7 +245,7 @@ func runProfile(t *testing.T, profile string, routes []route, port int, binary, 
 	}
 	for _, rt := range routes {
 		ok := t.Run(rt.ID, func(t *testing.T) {
-			golden, has := readGolden(testdataDir, rt.ID)
+			golden, has := readGolden(goldenIndex, rt.ID)
 			if !has {
 				t.Fatalf("no golden fixture for route %q", rt.ID)
 			}
@@ -521,11 +540,6 @@ func diffSummary(golden, got response) string {
 		fmt.Fprintf(&b, "  golden headers: %q\n  go headers:     %q\n", gm, gotm)
 	}
 	return b.String()
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // jsonRawEqual is a tiny helper kept for potential future use decoding request.json bodies

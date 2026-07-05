@@ -1,1 +1,0 @@
-{"issues":[{"level":"error","message":"Unclosed single quote in filter."},{"level":"error","message":"Single quoted string is not closed: Syntax error: failed at position 183 ('] != '') LIMIT 1): '] != '') LIMIT 1. . (SYNTAX_ERROR)"}],"normalized":"","ok":false}

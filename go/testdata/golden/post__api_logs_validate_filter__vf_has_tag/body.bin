@@ -1,1 +1,0 @@
-{"issues":[],"normalized":"MD5(concat(ServiceName,'|',toString(Timestamp),'|',TraceId,'|',SpanId)) IN (SELECT RecordId FROM sobs_record_tags FINAL WHERE TagKey='env' AND TagValue='prod' AND IsDeleted=0 AND RecordType='log')","ok":true}

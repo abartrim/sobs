@@ -1,5 +1,0 @@
-<!doctype html>
-<html lang=en>
-<title>Redirecting...</title>
-<h1>Redirecting...</h1>
-<p>You should be redirected automatically to the target URL: <a href="/settings/data-management?msg=Settings saved but TTL errors: otel_logs: TTL days must be a positive integer; otel_traces: TTL days must be a positive integer; hyperdx_sessions: TTL days must be a positive integer&amp;msg_type=warning">/settings/data-management?msg=Settings saved but TTL errors: otel_logs: TTL days must be a positive integer; otel_traces: TTL days must be a positive integer; hyperdx_sessions: TTL days must be a positive integer&amp;msg_type=warning</a>. If not, click the link.

@@ -1,1 +1,0 @@
-{"status": 200, "json": {"choices": [{"message": {"content": "Sorry, I could not produce a chart option."}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 120, "completion_tokens": 12}}}

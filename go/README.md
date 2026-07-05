@@ -20,8 +20,10 @@ go/
     otlp/              protobuf OTLP ingest (google.golang.org/protobuf + generated OTEL stubs)
   goldenreplay/         Go-native golden-corpus regression suite (chdb build tag) — boots the
                         compiled sobs binary per profile and byte-diffs its responses against
-                        testdata/golden/
-  testdata/             the frozen golden corpus + fixtures goldenreplay replays against
+                        testdata/golden.tar.gz
+  testdata/             the frozen golden corpus + fixtures goldenreplay replays against, as
+                        gzip'd tar archives (golden.tar.gz, fixtures/{base,seeds,upstream}.tar.gz)
+                        rather than thousands of loose files — see archive.go
   templates/, static/  symlinks to ../templates, ../static (repo-root assets, Go-rendered)
 ```
 

@@ -1,1 +1,0 @@
-{"id":13,"jsonrpc":"2.0","result":{"content":[{"text":"{\"count\": 1, \"rows\": [{\"ts\": \"2023-06-01 12:00:00\", \"service\": \"mcp-svc-a\", \"metric_name\": \"mcp.test.gauge\", \"metric_kind\": \"gauge\", \"value\": 3.14, \"sample_count\": 1}]}","type":"text"}],"isError":false}}

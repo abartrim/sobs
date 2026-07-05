@@ -1,1 +1,0 @@
-{"error":"Unknown expression identifier `no_such_column` in scope SELECT no_such_column AS time, 2. AS value, 3. AS p95, 4. AS p99 LIMIT 1000. (UNKNOWN_IDENTIFIER)"}
