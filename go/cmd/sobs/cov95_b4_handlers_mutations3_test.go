@@ -107,6 +107,22 @@ func TestHandleReportsSubImportWrongMethod(t *testing.T) {
 	}
 }
 
+func TestHandleReportsSubImportDispatchesToImportReports(t *testing.T) {
+	// Exercises handleReportsSub's own POST-dispatch line (as opposed to calling importReports
+	// directly, which every importReports-focused test below does).
+	s := &server{db: &storetest.FakeDB{}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/reports/import", strings.NewReader(
+		`{"sobs_reports_export":true,"version":"1","reports":[{"name":"Via Sub","page_type":"logs"}]}`))
+	s.handleReportsSub(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"imported":1`) {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
 func TestHandleReportsSubDeleteNotFound(t *testing.T) {
 	s := &server{db: &storetest.FakeDB{}}
 	w := httptest.NewRecorder()
@@ -580,6 +596,18 @@ func TestHandleAgentRunSubWrongPathShape(t *testing.T) {
 	}
 }
 
+func TestHandleAgentRunSubWrongMethodRegisteredPath(t *testing.T) {
+	// Correct path shape (.../dismiss) but GET instead of POST: paramMethodGuard recognizes the
+	// registered param route and returns true (405), distinct from the wrong-path-shape 404.
+	s := &server{db: &storetest.FakeDB{}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/agent/runs/run-1/dismiss", nil)
+	s.handleAgentRunSub(w, r)
+	if w.Code != 405 {
+		t.Fatalf("want 405, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleAgentRunSubQueryError(t *testing.T) {
 	s := &server{db: &storetest.FakeDB{ExecuteFunc: func(string, ...any) (*store.Result, error) {
 		return nil, errors.New("boom")
@@ -655,6 +683,16 @@ func TestHandleChannelSubWrongPathShape(t *testing.T) {
 	s.handleChannelSub(w, r)
 	if w.Code != 404 {
 		t.Fatalf("want 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleChannelSubWrongMethodRegisteredPath(t *testing.T) {
+	s := &server{db: &storetest.FakeDB{}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/notifications/channels/ch1/test", nil)
+	s.handleChannelSub(w, r)
+	if w.Code != 405 {
+		t.Fatalf("want 405, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -738,6 +776,16 @@ func TestHandleCveDispositionSubWrongPathShape(t *testing.T) {
 	s.handleCveDispositionSub(w, r)
 	if w.Code != 404 {
 		t.Fatalf("want 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleCveDispositionSubWrongMethodRegisteredPath(t *testing.T) {
+	s := &server{db: &storetest.FakeDB{}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/enrichment/cve/findings/osv-1/disposition", nil)
+	s.handleCveDispositionSub(w, r)
+	if w.Code != 405 {
+		t.Fatalf("want 405, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
