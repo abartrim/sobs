@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,14 +55,11 @@ func (s *server) setDMSetting(key, value string) error {
 var flaskSessionOpts = jsonenc.Options{SortKeys: false, EnsureASCII: true, ItemSep: ",", KeySep: ":"}
 
 // htmlEscapeMarkup mirrors markupsafe.escape (used in Werkzeug's redirect body).
-func htmlEscapeMarkup(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&#34;")
-	s = strings.ReplaceAll(s, "'", "&#39;")
-	return s
-}
+// htmlEscapeMarkup mirrors Werkzeug's redirect-body escaping (the same five characters,
+// same numeric entities as MarkupSafe — verified byte-identical to html.EscapeString by
+// fuzz test). Using the stdlib escaper directly means CodeQL's go/reflected-xss query
+// recognizes this as a barrier, unlike a hand-rolled replacer of the same characters.
+func htmlEscapeMarkup(s string) string { return html.EscapeString(s) }
 
 // Session-cookie config (app.py SESSION_COOKIE_NAME / SESSION_COOKIE_SAMESITE /
 // SESSION_COOKIE_SECURE), read once at startup. Defaults match Quart's (sobs_session, Lax, and

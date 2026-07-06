@@ -1,23 +1,11 @@
 package render
 
-import "strings"
+import "html"
 
-// escapeHTML reproduces MarkupSafe's escape() exactly (Jinja's autoescape):
-//
-//	&  -> &amp;
-//	<  -> &lt;
-//	>  -> &gt;
-//	"  -> &#34;
-//	'  -> &#39;
-//
-// Note the numeric entities for quotes (&#34;/&#39;), not &quot;/&apos; — and that & is
-// replaced first. Non-ASCII bytes are left as-is (UTF-8), matching MarkupSafe.
-var htmlEscaper = strings.NewReplacer(
-	"&", "&amp;",
-	"<", "&lt;",
-	">", "&gt;",
-	`"`, "&#34;",
-	"'", "&#39;",
-)
-
-func escapeHTML(s string) string { return htmlEscaper.Replace(s) }
+// escapeHTML reproduces MarkupSafe's escape() exactly (Jinja's autoescape): & -> &amp;,
+// < -> &lt;, > -> &gt;, " -> &#34;, ' -> &#39;. Go's stdlib html.EscapeString escapes the
+// same five characters to the same numeric entities (&#34;/&#39;, not &quot;/&apos;),
+// verified byte-identical against MarkupSafe's output by fuzz test — using it directly
+// means CodeQL's go/reflected-xss query recognizes this as a barrier, unlike a hand-rolled
+// replacer of the same five characters.
+func escapeHTML(s string) string { return html.EscapeString(s) }
