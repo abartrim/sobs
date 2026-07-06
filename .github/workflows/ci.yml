@@ -194,16 +194,26 @@ jobs:
         run: pip install black isort flake8 djlint
 
       - name: Run black
-        run: black --check scripts/
+        run: black --check scripts/ examples/
 
       - name: Run isort
-        run: isort --check-only scripts/
+        run: isort --check-only scripts/ examples/
 
       - name: Run flake8
-        run: flake8 scripts/
+        run: flake8 scripts/ examples/
 
       - name: Run djlint
         run: python3 scripts/run_djlint.py --check --lint templates
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install ESLint
+        run: npm ci
+
+      - name: Run ESLint (examples/)
+        run: npm run lint:examples
 
   docker:
     name: Build & Push Docker Image (Go)
