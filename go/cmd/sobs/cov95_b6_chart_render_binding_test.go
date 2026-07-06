@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sobs/sobs/internal/jsonenc"
+	"github.com/sobs/sobs/internal/store/storetest"
 )
 
 // cov95_b6_chart_render_binding_test.go — targeted unit tests for undertested branches in
@@ -516,6 +517,70 @@ func TestCov95B6_AttachDrilldownMetadata_TimeSeries_NonValueSeries(t *testing.T)
 	}
 }
 
+func TestCov95B6_AttachDrilldownMetadata_DerivedSignalOverlay_ValueSeries(t *testing.T) {
+	drilldown := jsonenc.NewObject().Set("bucket_seconds", 30)
+	valueSeries := jsonenc.NewObject().Set("name", "Value").Set("data", []any{10.0, 20.0})
+	opt := jsonenc.NewObject().Set("series", []any{valueSeries})
+	bindings := map[string]any{
+		"time":            []any{"t1", "t2"},
+		"anomaly_state":   []any{"normal", "outlier"},
+		"anomaly_score":   []any{0.1, 0.9},
+		"effective_state": []any{"normal", "outlier"},
+		"rule_state":      []any{"normal", "outlier"},
+		"rule_name":       []any{"", "HighCPU"},
+		"rule_reason":     []any{"", "value too high"},
+		"service":         []any{"web", "web"},
+		"source":          []any{"metrics", "metrics"},
+		"signal":          []any{"cpu", "cpu"},
+		"attr_fp":         []any{"fp1", "fp1"},
+	}
+	attachDrilldownMetadata("derived_signal_overlay", drilldown, bindings, opt)
+	dataV, _ := valueSeries.Get("data")
+	data := dataV.([]any)
+	pt1 := data[1].(*jsonenc.Object)
+	ddV, _ := pt1.Get("drilldown")
+	dd := ddV.(*jsonenc.Object)
+	ruleNameV, _ := dd.Get("_rule_name")
+	if ruleNameV != "HighCPU" {
+		t.Errorf("_rule_name = %v, want HighCPU (attachDerivedDrilldownFields wired in)", ruleNameV)
+	}
+	svcV, _ := dd.Get("service")
+	if svcV != "web" {
+		t.Errorf("service = %v, want web", svcV)
+	}
+	effV, _ := dd.Get("_effective_state")
+	if effV != "outlier" {
+		t.Errorf("_effective_state = %v, want outlier", effV)
+	}
+}
+
+func TestCov95B6_AttachDerivedDrilldownFields_MissingBindingsUseDefaults(t *testing.T) {
+	dd := jsonenc.NewObject()
+	// bindings missing every optional key -> each falls back to its default.
+	attachDerivedDrilldownFields(dd, map[string]any{}, 0)
+	cases := map[string]string{
+		"_rule_state": "normal", "_rule_name": "", "_rule_reason": "", "_effective_state": "normal",
+		"service": "", "source": "", "signal": "", "attr_fp": "",
+	}
+	for k, want := range cases {
+		got, _ := dd.Get(k)
+		if got != want {
+			t.Errorf("%s = %v, want %q (default)", k, got, want)
+		}
+	}
+}
+
+func TestCov95B6_AttachDerivedDrilldownFields_IndexOutOfRangeUsesDefault(t *testing.T) {
+	dd := jsonenc.NewObject()
+	bindings := map[string]any{"rule_state": []any{"outlier"}}
+	// idx=5 is out of range for the length-1 rule_state list -> falls back to the default.
+	attachDerivedDrilldownFields(dd, bindings, 5)
+	got, _ := dd.Get("_rule_state")
+	if got != "normal" {
+		t.Errorf("_rule_state = %v, want normal (out-of-range index default)", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // renderChartFromTemplateWithNamed — the derived_signal_overlay prepareTemplateRows error path
 // and custom_echarts delegation
@@ -675,5 +740,104 @@ func TestCov95B6_ApplyChartSpecVisualOverrides_NonLineSeriesNoSmooth(t *testing.
 	applyChartSpecVisualOverrides("heatmap", opt, spec)
 	if _, has := series.Get("smooth"); has {
 		t.Error("a non-line series should not get a smooth key set")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// renderChartFromTemplateWithNamed — full success paths (deepSubstitute + attachDrilldownMetadata
+// + default backgroundColor/textStyle injection), for a simple template and for
+// derived_signal_overlay (which additionally routes through s.prepareTemplateRows).
+// ---------------------------------------------------------------------------
+
+func TestCov95B6_RenderChartFromTemplateWithNamed_SimpleTemplateSuccess(t *testing.T) {
+	s := &server{}
+	columns := []any{"time", "value", "p95", "p99"}
+	rows := []map[string]any{
+		{"time": "2024-01-15T10:00:00Z", "value": 1.0, "p95": 2.0, "p99": 3.0},
+		{"time": "2024-01-15T10:01:00Z", "value": 1.5, "p95": 2.5, "p99": 3.5},
+	}
+	option, errMsg := s.renderChartFromTemplateWithNamed("time_series_percentiles", columns, rows, nil, nil)
+	if errMsg != "" {
+		t.Fatalf("unexpected error: %s", errMsg)
+	}
+	opt, ok := option.(*jsonenc.Object)
+	if !ok {
+		t.Fatalf("option is not an object: %#v", option)
+	}
+	bg, has := opt.Get("backgroundColor")
+	if !has || bg != "transparent" {
+		t.Errorf("backgroundColor = %v (has=%v), want transparent", bg, has)
+	}
+	if _, has := opt.Get("textStyle"); !has {
+		t.Error("textStyle default should be injected")
+	}
+	seriesV, _ := opt.Get("series")
+	series, ok := seriesV.([]any)
+	if !ok || len(series) == 0 {
+		t.Fatal("expected a non-empty series list")
+	}
+}
+
+func TestCov95B6_RenderChartFromTemplateWithNamed_ExtractBindingsErrorPropagates(t *testing.T) {
+	s := &server{db: &storetest.FakeDB{}}
+	// derived_signal_overlay needs 12-16 columns; supply a non-numeric baseline_mean cell so
+	// extractBindings (via extractDerivedSignalBindings) returns an error that must be surfaced
+	// through publicDashboardQueryError.
+	columns := []any{"time", "service", "source", "signal", "attr_fp", "value", "sample_count",
+		"baseline_mean", "baseline_lower", "baseline_upper", "anomaly_state", "anomaly_score"}
+	rows := []map[string]any{
+		{"time": "2024-01-15T10:00:00Z", "service": "web", "source": "src", "signal": "sig", "attr_fp": "fp1",
+			"value": 1.0, "sample_count": 5, "baseline_mean": "not-a-number", "baseline_lower": 0.5,
+			"baseline_upper": 1.5, "anomaly_state": "normal", "anomaly_score": 0.0},
+	}
+	_, errMsg := s.renderChartFromTemplateWithNamed("derived_signal_overlay", columns, rows, nil, nil)
+	if errMsg == "" {
+		t.Fatal("want an error from the non-numeric baseline_mean cell, got none")
+	}
+}
+
+func TestCov95B6_RenderChartFromTemplateWithNamed_DerivedSignalOverlaySuccess(t *testing.T) {
+	s := &server{db: &storetest.FakeDB{}}
+	columns := []any{"time", "service", "source", "signal", "attr_fp", "value", "sample_count",
+		"baseline_mean", "baseline_lower", "baseline_upper", "anomaly_state", "anomaly_score"}
+	rows := []map[string]any{
+		{"time": "2024-01-15T10:00:00Z", "service": "web", "source": "src", "signal": "sig", "attr_fp": "fp1",
+			"value": 12.0, "sample_count": 5, "baseline_mean": 10.0, "baseline_lower": 8.0,
+			"baseline_upper": 14.0, "anomaly_state": "normal", "anomaly_score": 0.0},
+		{"time": "2024-01-15T10:01:00Z", "service": "web", "source": "src", "signal": "sig", "attr_fp": "fp1",
+			"value": 30.0, "sample_count": 5, "baseline_mean": 10.0, "baseline_lower": 8.0,
+			"baseline_upper": 14.0, "anomaly_state": "outlier", "anomaly_score": 1.0},
+	}
+	option, errMsg := s.renderChartFromTemplateWithNamed("derived_signal_overlay", columns, rows, nil, nil)
+	if errMsg != "" {
+		t.Fatalf("unexpected error: %s", errMsg)
+	}
+	opt, ok := option.(*jsonenc.Object)
+	if !ok {
+		t.Fatalf("option is not an object: %#v", option)
+	}
+	seriesV, _ := opt.Get("series")
+	series := seriesV.([]any)
+	var valueSeries *jsonenc.Object
+	for _, se := range series {
+		seo := se.(*jsonenc.Object)
+		if nameV, _ := seo.Get("name"); nameV == "Value" {
+			valueSeries = seo
+			break
+		}
+	}
+	if valueSeries == nil {
+		t.Fatal("expected a 'Value' series in the rendered option")
+	}
+	dataV, _ := valueSeries.Get("data")
+	data := dataV.([]any)
+	if len(data) != 2 {
+		t.Fatalf("want 2 data points, got %d", len(data))
+	}
+	pt := data[1].(*jsonenc.Object)
+	ddV, _ := pt.Get("drilldown")
+	dd := ddV.(*jsonenc.Object)
+	if stateV, _ := dd.Get("_anomaly_state"); stateV != "outlier" {
+		t.Errorf("_anomaly_state = %v, want outlier", stateV)
 	}
 }
