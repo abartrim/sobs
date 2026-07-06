@@ -92,14 +92,20 @@ If formatters update files, the hook re-stages those files automatically.
 Run these before opening or updating a PR:
 
 ```bash
-isort scripts
-black scripts
-flake8 scripts
+isort scripts examples
+black scripts examples
+flake8 scripts examples
 python3 scripts/run_djlint.py --reformat --lint templates
 python3 scripts/run_djlint.py --check --lint templates
+npm run lint:examples   # ESLint over examples/nodejs and examples/rum
 ```
 
 On a clean tree, `--check` applies only to templates changed on the current branch. To format a specific file directly, pass the file path instead of the `templates` directory.
+
+`examples/` holds real integration snippets (Node.js, browser RUM helpers, Python), not throwaway
+samples — they're linted the same as everything else. `eslint.config.js` scopes ESLint to
+`examples/nodejs` and `examples/rum` only; the shipped RUM bundle source is type-checked
+separately via `npm run typecheck:rum`.
 
 ## Regenerating Docs Screenshots
 
