@@ -522,6 +522,27 @@ func TestImportReportsMultipartUpload(t *testing.T) {
 	}
 }
 
+func TestImportReportsMultipartFileTooLarge(t *testing.T) {
+	// ContentLength is left unset/small (so the top-level guard doesn't trip), but the actual
+	// uploaded file body exceeds reportsImportMaxBytes once read -> the multipart-specific
+	// payloadTooLarge() branch (line ~146) fires instead of the top-level one.
+	s := &server{db: &storetest.FakeDB{}}
+	w := httptest.NewRecorder()
+	var buf strings.Builder
+	boundary := "XBOUNDARYX"
+	buf.WriteString("--" + boundary + "\r\n")
+	buf.WriteString(`Content-Disposition: form-data; name="file"; filename="reports.json"` + "\r\n")
+	buf.WriteString("Content-Type: application/json\r\n\r\n")
+	buf.WriteString(strings.Repeat("a", reportsImportMaxBytes+1))
+	buf.WriteString("\r\n--" + boundary + "--\r\n")
+	r := httptest.NewRequest("POST", "/api/reports/import", strings.NewReader(buf.String()))
+	r.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+	s.importReports(w, r)
+	if w.Code != 413 {
+		t.Fatalf("want 413, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestImportReportsMultipartNoFile(t *testing.T) {
 	s := &server{db: &storetest.FakeDB{}}
 	w := httptest.NewRecorder()
@@ -897,6 +918,52 @@ func TestHandleDashboardSubExportDashboardNotFound(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Dashboard not found") {
 		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestHandleDashboardSubImportDispatchesToImportChart(t *testing.T) {
+	// Dashboard exists -> handleDashboardSub's own dispatch line to s.importChart runs (as opposed
+	// to calling importChart directly, which the importChart-focused tests below do).
+	fake := &storetest.FakeDB{ExecuteFunc: func(q string, _ ...any) (*store.Result, error) {
+		if strings.Contains(q, "sobs_dashboards") {
+			return storetest.Result([]string{"Id"}, []any{"dash-1"}), nil
+		}
+		return &store.Result{}, nil
+	}}
+	s := &server{db: fake}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/api/dashboards/dash-1/charts/import", strings.NewReader(
+		`{"sobs_chart_template_version":1,"chart_spec":{"template_id":"heatmap","sql":{"mode":"raw","override_sql":"SELECT 1"}}}`))
+	s.handleDashboardSub(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"dashboard_id":"dash-1"`) {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestHandleDashboardSubExportDispatchesToExportChart(t *testing.T) {
+	// Dashboard exists -> handleDashboardSub's own dispatch line to s.exportChart runs.
+	cols := []string{"Id", "Title", "ChartType", "Query", "OptionsJson"}
+	fake := &storetest.FakeDB{ExecuteFunc: func(q string, _ ...any) (*store.Result, error) {
+		if strings.Contains(q, "sobs_dashboards") {
+			return storetest.Result([]string{"Id"}, []any{"dash-1"}), nil
+		}
+		if strings.Contains(q, "sobs_chart_configs") {
+			return storetest.Result(cols, []any{"chart-1", "My Chart", "heatmap", "SELECT 1", "{}"}), nil
+		}
+		return &store.Result{}, nil
+	}}
+	s := &server{db: fake}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/dashboards/dash-1/charts/chart-1/export", nil)
+	s.handleDashboardSub(w, r)
+	if w.Code != 200 {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("expected an attachment Content-Disposition, got %q", w.Header().Get("Content-Disposition"))
 	}
 }
 
