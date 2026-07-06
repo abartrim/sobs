@@ -46,6 +46,21 @@ CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./gol
 See [go/README.md](go/README.md) and [go/CHDB_PIN.md](go/CHDB_PIN.md) for the pinned native
 chdb library this needs.
 
+### Coverage floor
+
+CI enforces a minimum combined statement-coverage floor (unit tests + golden-corpus replay,
+generated OTLP protobuf excluded) — see `go/COVERAGE_FLOOR` and `go/coverage_gate.sh`. A PR that
+drops coverage below the floor fails the build; raise `go/COVERAGE_FLOOR` in the same PR that
+adds meaningful new coverage to lock in the gain. To reproduce locally:
+
+```bash
+cd go
+export GOCOVERDIR=$(mktemp -d)
+go test -cover -covermode=atomic ./... -args -test.gocoverdir="$GOCOVERDIR"
+SOBS_GOCOVER=1 CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
+./coverage_gate.sh "$GOCOVERDIR"
+```
+
 ## Pre-Commit Hook
 
 This repository ships a version-controlled Git hook at `.githooks/pre-commit`.

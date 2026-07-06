@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/coverage"
 	"strings"
 	"syscall"
 	"time"
@@ -37,16 +38,28 @@ func main() {
 
 	addr := resolveBindAddr(cfg.Port)
 	// Coverage flush hook (NO-OP unless GOCOVERDIR is set, i.e. a `go build -cover` measurement run):
-	// a -cover binary only writes its GOCOVERDIR data on a clean exit, but the parity harness stops
-	// the server with SIGTERM, which by default kills it without running the runtime's exit hooks.
-	// When measuring, trap SIGTERM/SIGINT and os.Exit(0) so the counters are flushed. Production and
-	// normal parity runs never set GOCOVERDIR, so behaviour there is unchanged.
-	if os.Getenv("GOCOVERDIR") != "" {
+	// the parity harness stops the server with SIGINT/SIGTERM, and this is a long-running server
+	// (not a one-shot `go test` binary), so use runtime/coverage's explicit API — designed exactly
+	// for "long-running and/or server programs that do not terminate via os.Exit" — rather than
+	// os.Exit's implicit exit-hook flush. Once the counters are durably written to gcd, terminate via
+	// a raw SIGKILL to self rather than os.Exit: chdb's cgo threads can be mid-call when the signal
+	// arrives, and routing process teardown through the Go runtime's os.Exit->libc exit() path races
+	// that native state and aborts (SIGABRT) on darwin/arm64. SIGKILL is handled entirely by the
+	// kernel, so it can't collide with in-flight cgo/native cleanup — safe here because nothing after
+	// this point needs orderly Go-level shutdown. Production and normal parity runs never set
+	// GOCOVERDIR, so behavior there is unchanged.
+	if gcd := os.Getenv("GOCOVERDIR"); gcd != "" {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		go func() {
 			<-sigCh
-			os.Exit(0)
+			if err := coverage.WriteMetaDir(gcd); err != nil {
+				log.Printf("coverage: WriteMetaDir: %v", err)
+			}
+			if err := coverage.WriteCountersDir(gcd); err != nil {
+				log.Printf("coverage: WriteCountersDir: %v", err)
+			}
+			_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
 		}()
 	}
 	log.Printf("sobs (go) listening on %s  parity=%v dataDir=%s", addr, cfg.Parity, cfg.DataDir)

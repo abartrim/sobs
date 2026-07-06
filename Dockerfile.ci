@@ -54,15 +54,28 @@ COPY go/ ./
 RUN gofmt_out="$(gofmt -l .)"; if [ -n "$gofmt_out" ]; then echo "::error::not gofmt-clean:"; echo "$gofmt_out"; exit 1; fi
 RUN go vet ./...
 RUN go build ./...
-RUN go test -p 2 -count=1 ./...
 
+RUN go vet -tags chdb ./goldenreplay/...
+
+# GOCOVERDIR collects counter data from BOTH the unit tests and the golden-corpus replay
+# (SOBS_GOCOVER=1 points the replayed sobs binary's own flush hook at the same directory);
+# coverage_gate.sh then measures their union. All three run in ONE RUN instruction (one
+# container instance, one filesystem) rather than as separate layers — GOCOVERDIR's
+# per-process-unique counter files make it safe to accumulate across steps, but keeping the
+# whole measure-then-gate sequence inside a single step removes any dependency on BuildKit's
+# cross-layer snapshot handling, which is worth avoiding here.
+#
 # --- Go-native golden-corpus replay suite (Phase 0 of the Python-removal cutover): replays the
 # frozen corpus in go/testdata/ against this same compiled binary over real HTTP, no Python
 # involved. SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise
 # trips inside the nested dind container under this suite's per-profile concurrency (the same
-# flag the parity job sets for the same reason). ---
-RUN go vet -tags chdb ./goldenreplay/...
-RUN SOBS_CHDB_MAX_SERVER_MB=0 go test -tags chdb -run TestGoldenCorpus -v ./goldenreplay/...
+# flag the parity job sets for the same reason). SOBS_GOCOVER=1 builds the replayed sobs binary
+# with coverage instrumentation too — see goldenreplay/replay_test.go's buildBinaries. ---
+ENV GOCOVERDIR=/tmp/gocoverdir
+RUN mkdir -p "$GOCOVERDIR" \
+    && go test -p 2 -count=1 -cover -covermode=atomic ./... -args -test.gocoverdir="$GOCOVERDIR" \
+    && SOBS_CHDB_MAX_SERVER_MB=0 SOBS_GOCOVER=1 go test -tags chdb -run TestGoldenCorpus -v ./goldenreplay/... \
+    && ./coverage_gate.sh "$GOCOVERDIR"
 
 # Tiny final stage so the image (if ever pushed) is trivial; the value is the cached build layers.
 FROM scratch AS result
