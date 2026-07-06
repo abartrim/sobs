@@ -208,3 +208,6 @@ file:/tmp/
 
 # Integration test screenshots (uploaded as CI artifacts)
 tests/screenshots/
+
+# golang
+gosobs/vendor/

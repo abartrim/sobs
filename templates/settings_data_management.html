@@ -62,7 +62,7 @@
               <tr>
                 <td class="text-secondary">Total rows (active parts)</td>
                 <td class="fw-semibold">
-                  {% if db_stats.total_rows is not none %}{{ "{:,}".format(db_stats.total_rows) }}{% else %}—{% endif %}
+                  {% if db_stats.total_rows is not none %}{{ "{:,d}".format(db_stats.total_rows) }}{% else %}—{% endif %}
                 </td>
               </tr>
               <tr>
@@ -88,7 +88,7 @@
                   <td class="small font-monospace text-truncate" style="max-width:140px;" title="{{ t.table }}" data-label="Table">{{ t.table }}</td>
                   <td class="small" data-label="Size">{{ fmt_bytes(t.compressed_bytes) }}</td>
                   <td class="small" data-label="Ratio">{% if t.compression_ratio is not none %}{{ t.compression_ratio }}×{% else %}—{% endif %}</td>
-                  <td class="small" data-label="Rows">{{ "{:,}".format(t.rows) }}</td>
+                  <td class="small" data-label="Rows">{{ "{:,d}".format(t.rows) }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -186,8 +186,7 @@
             This is an advisory indicator only — SOBS does not block TTL or backup operations.
           </p>
           {% if dm_settings.get('data_management.ttl_backup_coupling_enabled') == '1' %}
-          {% set ttl_days = dm_settings.get('data_management.ttl_logs_days', '') or
-                            dm_settings.get('data_management.ttl_traces_days', '') %}
+          {% set ttl_days = dm_settings.get('data_management.ttl_logs_days', '') or dm_settings.get('data_management.ttl_traces_days', '') %}
           {% set sched_full = dm_settings.get('data_management.backup_schedule_full', '') %}
           {% if ttl_days and not sched_full %}
           <div class="alert alert-warning py-2 small mt-2 mb-0">

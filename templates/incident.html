@@ -543,29 +543,29 @@
       lines.push('| RUM Sessions | {{ related_rum_sessions }} |');
       lines.push('| RUM Errors | {{ related_rum_error_count }} |');
       lines.push('| Anomaly State | {{ anomaly_state or "unknown" }} |');
-      lines.push('| Metric Points | {{ (metrics_context or {}).get("total_points", 0) }} |');
-      lines.push('| Metric Series | {{ ((metrics_context or {}).get("series", []) | length) }} |');
-      lines.push('| Metrics Source Mode | {{ (metrics_context or {}).get("source_mode", "none") }} |');
+      lines.push('| Metric Points | {{ metrics_context.get("total_points", 0) }} |');
+      lines.push('| Metric Series | {{ (metrics_context.get("series", []) | length) }} |');
+      lines.push('| Metrics Source Mode | {{ metrics_context.get("source_mode", "none") }} |');
       lines.push('| Preserved Raw Windows | {{ (raw_windows or []) | length }} |');
       lines.push('');
 
       lines.push('## Metrics Context');
-      lines.push('- Match Strategy: {{ (metrics_context or {}).get("match_label", "no match") }}');
-      lines.push('- Match Dimensions: {{ ((metrics_context or {}).get("match_dimensions", []) | join(", ")) or "none" }}');
+      lines.push('- Match Strategy: {{ metrics_context.get("match_label", "no match") }}');
+      lines.push('- Match Dimensions: {{ (metrics_context.get("match_dimensions", []) | join(", ")) or "none" }}');
       lines.push('');
 
-      {% if (metrics_context or {}).get("health_chips") %}
+      {% if metrics_context.get("health_chips") %}
       lines.push('## Metric Indicators');
-      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'crit' %}
+      {% for chip in metrics_context.get("health_chips", []) if chip.level == 'crit' %}
       lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
       {% endfor %}
-      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'warn' %}
+      {% for chip in metrics_context.get("health_chips", []) if chip.level == 'warn' %}
       lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
       {% endfor %}
-      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level == 'ok' %}
+      {% for chip in metrics_context.get("health_chips", []) if chip.level == 'ok' %}
       lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
       {% endfor %}
-      {% for chip in (metrics_context or {}).get("health_chips", []) if chip.level not in ['crit', 'warn', 'ok'] %}
+      {% for chip in metrics_context.get("health_chips", []) if chip.level not in ['crit', 'warn', 'ok'] %}
       lines.push('- {{ chip.label }}: {{ chip.value }} ({{ chip.level }})');
       {% endfor %}
       lines.push('');

@@ -1,0 +1,68 @@
+# Go port of SOBS (gosobs/). Build context = repo root (needs gosobs/,
+# templates/, static/). Build: docker build -f Dockerfile.golang -t sobs-go:dev .
+#
+# chdb-go uses purego (runtime dlopen), so the build needs NO native lib —
+# CGO_ENABLED=0 produces a clean binary. At runtime libchdb.so (a C++ shared
+# library) must be on the loader path, so the runtime image is debian-slim with
+# libstdc++ rather than scratch/distroless-static.
+
+# ---- 1. Build the Go binary -------------------------------------------------
+# --platform=$BUILDPLATFORM: run the compiler natively (no QEMU); cross-compile
+# to the target via GOOS/GOARCH. CGO_ENABLED=0 makes cross-compile trivial.
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+ARG TARGETOS TARGETARCH
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+WORKDIR /src
+# Vendored deps → fully offline build.
+COPY gosobs/ ./gosobs/
+WORKDIR /src/gosobs
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -o /out/sobs .
+
+# ---- 2. Fetch libchdb.so ----------------------------------------------------
+# Pinned download (the `curl -sL https://lib.chdb.io | bash` helper tracks
+# "latest" and is non-reproducible). Bump LIBCHDB_VERSION to match the chdb-go
+# version in gosobs/go.mod when upgrading. Tarball contains a single top-level
+# libchdb.so. Release assets: https://github.com/chdb-io/chdb-core/releases
+# --platform=$BUILDPLATFORM: download natively (no QEMU); pick the asset from
+# TARGETARCH rather than the running arch so cross-builds fetch the right .so.
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS libchdb
+ARG LIBCHDB_VERSION=v26.5.0
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /chdb
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) plat=linux-x86_64-libchdb.tar.gz ;; \
+        arm64) plat=linux-aarch64-libchdb.tar.gz ;; \
+        *) echo "unsupported arch: $TARGETARCH"; exit 1 ;; \
+    esac; \
+    curl -fsSL -o libchdb.tar.gz \
+        "https://github.com/chdb-io/chdb-core/releases/download/${LIBCHDB_VERSION}/${plat}"; \
+    tar -xzf libchdb.tar.gz; \
+    rm libchdb.tar.gz; \
+    test -f libchdb.so
+
+# ---- 3. Runtime -------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libstdc++6 libgomp1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 sobs \
+    && useradd --system --uid 10001 --gid sobs --home-dir /app sobs
+
+# Native chDB library (+ refresh loader cache).
+COPY --from=libchdb /chdb/libchdb.so /usr/local/lib/libchdb.so
+RUN ldconfig
+
+WORKDIR /app
+COPY --from=build /out/sobs ./sobs
+# templatesDir()/staticDir() resolve "templates"/"static" relative to cwd.
+COPY templates/ ./templates/
+COPY static/ ./static/
+
+RUN mkdir -p /data && chown -R sobs:sobs /app /data
+USER sobs
+ENV SOBS_DATA_DIR=/data PORT=44317
+EXPOSE 44317
+ENTRYPOINT ["./sobs"]

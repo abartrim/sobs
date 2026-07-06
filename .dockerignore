@@ -7,3 +7,7 @@ venv/
 *.egg-info/
 dist/
 build/
+# Go integration suite (separate module, not needed to build the server image)
+gosobs/integration/
+# Go build output
+gosobs/sobs

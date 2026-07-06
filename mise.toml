@@ -1,0 +1,47 @@
+[tasks."test:unit"]
+description = "Go unit tests (pure-function suite)"
+dir = "gosobs"
+run = "go test ./"
+
+[tasks."test:integration"]
+description = "Go integration tests (builds server, headless Chromium via go-rod)"
+dir = "gosobs/integration"
+run = "go test ./..."
+
+[tasks.test]
+description = "All Go tests (unit + integration)"
+depends = ["test:unit", "test:integration"]
+
+[tasks."build:docker"]
+description = "Build the Docker image"
+# ponytail: tag fixed to sobs:dev; override with `mise run build:docker` after editing if you need a registry tag.
+run = "docker build -t sobs:dev ."
+
+[tasks.ci]
+description = "Run all tests, then build the Docker image"
+depends = ["test"]
+run = "mise run build:docker"
+
+[tasks."build:docker-go"]
+description = "Build the Go server image locally (host arch, loaded into docker)"
+# buildx (not legacy builder) so $BUILDPLATFORM/$TARGET* ARGs resolve; --load
+# puts it in the local docker. Single-arch here; multi-arch in push:docker-go.
+run = "docker buildx build -f Dockerfile.golang -t sobs-go:dev --load ."
+
+[tasks."push:docker-go"]
+description = "Build multi-arch (amd64+arm64) and push to the registry (override IMAGE to change tag)"
+# ponytail: defaults to ghcr.io/abartrim/sobs-go:latest; set IMAGE=... to override.
+# buildx pushes a multi-arch manifest in one shot — no separate tag/push step.
+# Needs `docker login ghcr.io` and a buildx builder (`docker buildx create --use` once).
+run = '''
+IMAGE="${IMAGE:-ghcr.io/tstechly/sobs-go:dev}"
+docker buildx build -f Dockerfile.golang \
+    --platform linux/amd64,linux/arm64 \
+    -t "$IMAGE" --push .
+'''
+
+[tasks."start:docker"]
+description = "Build (if needed) and run the Go server image locally on :44317"
+depends = ["build:docker-go"]
+# Foreground; Ctrl-C stops it. Data persists in the sobs-go-data volume.
+run = "docker run --rm --name sobs-go -p 44317:44317 -v sobs-go-data:/data sobs-go:dev"
