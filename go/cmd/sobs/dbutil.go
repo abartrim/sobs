@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -65,8 +66,14 @@ func cInt(m map[string]any, key string) int {
 	case float64:
 		return int(v)
 	case string:
-		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		return int(n) // codeql[go/incorrect-integer-conversion] -- see comment above
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			return 0
+		}
+		if n < math.MinInt64 || n > math.MaxInt64 {
+			return 0
+		}
+		return int(n)
 	default:
 		return 0
 	}

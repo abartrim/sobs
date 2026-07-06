@@ -136,6 +136,22 @@ func (sm *sourceMapper) remapRumConsoleStacksObj(event *jsonenc.Object) {
 	}
 }
 
+// safeMapPath joins safeDir (already absolute) with rel and reports whether the resolved
+// absolute path is still contained within safeDir, matching the "resolve then verify
+// containment" pattern for untrusted path components with multiple segments (as opposed to
+// a single-component name, which is instead checked for separators/".." before use).
+func safeMapPath(safeDir, rel string) (string, bool) {
+	joined := filepath.Join(safeDir, rel)
+	absPath, err := filepath.Abs(joined)
+	if err != nil {
+		return "", false
+	}
+	if absPath != safeDir && !strings.HasPrefix(absPath, safeDir+string(os.PathSeparator)) {
+		return "", false
+	}
+	return absPath, true
+}
+
 // lookupForFile mirrors _sourcemap_lookup_for_file: resolve a `.map` for the JS url, parse it
 // (mtime-cached), look up (line-1, col-1), and return 1-based original (src, line, col, name).
 func (sm *sourceMapper) lookupForFile(jsURL string, line, col int) (string, int, int, string, bool) {
@@ -151,9 +167,12 @@ func (sm *sourceMapper) lookupForFile(jsURL string, line, col int) (string, int,
 		urlPath = u.Path
 	}
 	// jsURL comes from a stack-trace frame in externally-submitted RUM/error telemetry, so
-	// urlPath is untrusted input. Reject path traversal exactly like handleStatic does for
-	// /static/ (static.go): prefix with "/" before Clean so any "../" sequences collapse
-	// against the root and can never resolve outside sm.dir once re-joined onto it.
+	// urlPath is untrusted input. safeDir is validated against sm.dir before building any
+	// candidate path from it below.
+	safeDir, err := filepath.Abs(sm.dir)
+	if err != nil {
+		return "", 0, 0, "", false
+	}
 	relPath := strings.TrimPrefix(filepath.Clean("/"+urlPath), "/")
 	basename := path.Base(urlPath)
 	if basename != "" {
@@ -162,15 +181,27 @@ func (sm *sourceMapper) lookupForFile(jsURL string, line, col int) (string, int,
 
 	var candidates []string
 	if relPath != "" {
-		candidates = append(candidates, filepath.Join(sm.dir, relPath+".map"))
+		if c, ok := safeMapPath(safeDir, relPath+".map"); ok {
+			candidates = append(candidates, c)
+		}
 	}
-	if basename != "" && basename != "." && basename != "/" {
-		candidates = append(candidates, filepath.Join(sm.dir, basename+".map"))
+	// basename must be a single path component (path.Base never returns one containing "/",
+	// but a defensive check costs nothing) — reject anything that could still smuggle a
+	// directory traversal before it's ever joined onto safeDir.
+	if basename != "" && basename != "." && basename != "/" &&
+		!strings.Contains(basename, "/") && !strings.Contains(basename, "\\") && !strings.Contains(basename, "..") {
+		if c, ok := safeMapPath(safeDir, basename+".map"); ok {
+			candidates = append(candidates, c)
+		}
 		if strings.HasSuffix(basename, ".min.js") {
-			candidates = append(candidates, filepath.Join(sm.dir, strings.Replace(basename, ".min.js", ".js.map", 1)))
+			if c, ok := safeMapPath(safeDir, strings.Replace(basename, ".min.js", ".js.map", 1)); ok {
+				candidates = append(candidates, c)
+			}
 		}
 		if strings.HasSuffix(basename, ".js") {
-			candidates = append(candidates, filepath.Join(sm.dir, basename[:len(basename)-3]+".js.map"))
+			if c, ok := safeMapPath(safeDir, basename[:len(basename)-3]+".js.map"); ok {
+				candidates = append(candidates, c)
+			}
 		}
 	}
 

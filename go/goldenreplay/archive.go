@@ -68,6 +68,15 @@ func extractTarGz(archivePath, destDir string) error {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
+
+	// Symlink entries are deferred to a second pass, after every directory and regular
+	// file has been created, so isRelSafe's EvalSymlinks call always has a real
+	// filesystem tree to resolve pre-existing symlinks against (see isRelSafe).
+	type symlinkEntry struct {
+		name, linkname string
+	}
+	var symlinks []symlinkEntry
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -75,6 +84,12 @@ func extractTarGz(archivePath, destDir string) error {
 		}
 		if err != nil {
 			return err
+		}
+		// Reject any entry name containing ".." before it is used in any file-system
+		// operation — the barrier pattern go/zipslip's own documentation recommends
+		// checking ahead of use, rather than validating the joined result after the fact.
+		if strings.Contains(hdr.Name, "..") {
+			return fmt.Errorf("tar entry %q must not contain \"..\"", hdr.Name)
 		}
 		rel := path.Clean(hdr.Name)
 		if rel == "." {
@@ -90,25 +105,18 @@ func extractTarGz(archivePath, destDir string) error {
 				return err
 			}
 		case tar.TypeSymlink:
-			// hdr.Linkname is the raw string os.Symlink stores as the link's target — an
-			// absolute linkname (e.g. "/etc/passwd") would create a symlink pointing
-			// straight there regardless of destDir, so only relative linknames are
-			// accepted, and only ones that stay within destDir once resolved against the
-			// symlink's own directory (this archive's only legitimate use, chdb's Atomic
-			// engine, links relative paths like "../../store/<uuid>" — see the comment
-			// above extractTarGz).
+			// hdr.Linkname legitimately contains ".." for any relative symlink that walks
+			// up a directory (e.g. chdb's Atomic engine linking "metadata/default" to
+			// "../store/<uuid>") — unlike an archive entry NAME, a target is validated by
+			// resolving where it actually lands (isRelSafeTarget below), not by rejecting
+			// ".." outright.
 			if filepath.IsAbs(hdr.Linkname) {
 				return fmt.Errorf("tar entry %q: symlink target %q must be relative", hdr.Name, hdr.Linkname)
-			}
-			if _, err := safeJoin(destDir, filepath.Join(filepath.Dir(rel), hdr.Linkname)); err != nil {
-				return fmt.Errorf("tar entry %q: symlink target %q: %w", hdr.Name, hdr.Linkname, err)
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return err
-			}
+			symlinks = append(symlinks, symlinkEntry{name: rel, linkname: hdr.Linkname})
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
@@ -130,6 +138,39 @@ func extractTarGz(archivePath, destDir string) error {
 			}
 		}
 	}
+
+	if len(symlinks) > 0 {
+		// Resolve destDir itself once (e.g. macOS's /tmp -> /private/tmp, or /var ->
+		// /private/var, which t.TempDir() paths go through): every EvalSymlinks-resolved
+		// path below is compared against this resolved base, not the unresolved destDir,
+		// or a legitimate entry inside an unresolved-but-symlinked destDir would look like
+		// it escapes.
+		realBase, err := filepath.EvalSymlinks(destDir)
+		if err != nil {
+			return fmt.Errorf("resolving destination directory: %w", err)
+		}
+		for _, sl := range symlinks {
+			target, err := safeJoin(destDir, sl.name)
+			if err != nil {
+				return fmt.Errorf("symlink %q: %w", sl.name, err)
+			}
+			// isRelSafe resolves any symlinks ALREADY extracted (e.g. chdb's Atomic engine
+			// links one directory level before another) before checking the result stays
+			// within destDir — a syntactic filepath.Rel check alone (this function's
+			// previous approach) can't detect an escape built from a chain of
+			// individually-safe-looking relative links, which is exactly what
+			// go/unsafe-unzip-symlink guards against.
+			if !isRelSafe(sl.name, realBase) {
+				return fmt.Errorf("tar entry %q: resolved path escapes destination directory", sl.name)
+			}
+			if !isRelSafeTarget(sl.name, sl.linkname, realBase) {
+				return fmt.Errorf("tar entry %q: symlink target %q escapes destination directory", sl.name, sl.linkname)
+			}
+			if err := os.Symlink(sl.linkname, target); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -143,4 +184,47 @@ func safeJoin(destDir, rel string) (string, error) {
 		return "", fmt.Errorf("path escapes destination directory: %q", rel)
 	}
 	return target, nil
+}
+
+// isRelSafe reports whether rel (a path relative to base) resolves — after following any
+// symlinks already extracted along the way — to a location still inside base. Unlike a
+// purely syntactic filepath.Rel check on the unresolved path, this follows pre-existing
+// symlinks first (filepath.EvalSymlinks), so a chain such as "subdir/parent -> .." followed
+// by "escape -> subdir/parent/.." can't walk outside base even though each individual link
+// looks locally safe when checked in isolation.
+func isRelSafe(rel, base string) bool {
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	joined := filepath.Join(base, rel)
+	realDir, err := filepath.EvalSymlinks(filepath.Dir(joined))
+	if err != nil {
+		return false
+	}
+	realpath := filepath.Join(realDir, filepath.Base(joined))
+	relpath, err := filepath.Rel(base, realpath)
+	return err == nil && relpath != ".." && !strings.HasPrefix(relpath, ".."+string(os.PathSeparator))
+}
+
+// isRelSafeTarget reports whether a symlink at rel (relative to base) pointing at linkname
+// (relative to the symlink's own directory, as os.Symlink/the filesystem interpret it)
+// resolves to a location still inside base, following any pre-existing symlinks the same
+// way isRelSafe does.
+func isRelSafeTarget(rel, linkname, base string) bool {
+	if filepath.IsAbs(linkname) {
+		return false
+	}
+	linkDir := filepath.Dir(filepath.Join(base, rel))
+	realLinkDir, err := filepath.EvalSymlinks(linkDir)
+	if err != nil {
+		return false
+	}
+	joined := filepath.Join(realLinkDir, linkname)
+	realDir, err := filepath.EvalSymlinks(filepath.Dir(joined))
+	if err != nil {
+		return false
+	}
+	realpath := filepath.Join(realDir, filepath.Base(joined))
+	relpath, err := filepath.Rel(base, realpath)
+	return err == nil && relpath != ".." && !strings.HasPrefix(relpath, ".."+string(os.PathSeparator))
 }

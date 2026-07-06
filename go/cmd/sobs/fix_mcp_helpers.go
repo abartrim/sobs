@@ -27,11 +27,22 @@ func mcpClampArg(o *jsonenc.Object, key string, lo, hi, def int) int {
 	if !ok {
 		return def // mirrors int(value) raising ValueError/TypeError -> default
 	}
-	// Clamp at int64 width before narrowing to int: an MCP tool arg is caller-supplied and
-	// mcpToInt's Python int() semantics have no upper bound, so clamping first means an
-	// out-of-range value can't be silently truncated by the final int(...) conversion —
-	// lo/hi are always small literal bounds, so the clamped result is always int-safe.
-	return int(clampInt64(n, int64(lo), int64(hi)))
+	// Bound-check at int32 width, with literal constants, before narrowing to int: an MCP
+	// tool arg is caller-supplied and mcpToInt's Python int() semantics have no upper bound,
+	// so an out-of-range value must never reach the int(...) conversion below. lo/hi are
+	// always small literal bounds supplied by callers, so this only ever changes behavior for
+	// pathological out-of-range input (which now yields def instead of a clamp).
+	if n < math.MinInt32 || n > math.MaxInt32 {
+		return def
+	}
+	clamped := int(n)
+	if clamped < lo {
+		return lo
+	}
+	if clamped > hi {
+		return hi
+	}
+	return clamped
 }
 
 // mcpToInt converts a JSON-decoded scalar to an int64 the way Python's int(value) would,

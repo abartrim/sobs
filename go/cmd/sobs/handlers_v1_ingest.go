@@ -541,10 +541,9 @@ func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) 
 	}
 	// ttl_raw = payload.get("ttlSec", default); int(ttl_raw) — accepts ints, floats, AND numeric
 	// strings ("3600"); a TypeError/ValueError falls back to the configured default.
-	// ttlSec is parsed as int64 and clamped at that width before narrowing to int — the
-	// payload's ttlSec is untrusted client input and could be an arbitrarily large numeric
-	// string; clamping first (clampInt64) means an out-of-range value can't be silently
-	// truncated by a premature int(...) conversion, unlike clamping after narrowing.
+	// ttlSec is parsed as int64 first since the payload's ttlSec is untrusted client input and
+	// could be an arbitrarily large numeric string; the bound check below (literal 30..86400)
+	// runs before any narrowing to int, so an out-of-range value can't be silently truncated.
 	ttlSec64 := int64(s.rumClient.ttlSec)
 	if v, ok := m["ttlSec"]; ok {
 		switch t := v.(type) {
@@ -562,7 +561,15 @@ func (s *server) handleV1RumClientToken(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
-	ttlSec := int(clampInt64(ttlSec64, 30, 24*60*60))
+	var ttlSec int
+	switch {
+	case ttlSec64 < 30:
+		ttlSec = 30
+	case ttlSec64 > 24*60*60:
+		ttlSec = 24 * 60 * 60
+	default:
+		ttlSec = int(ttlSec64)
+	}
 
 	now := nowUTC().Unix()
 	claims := rumClaims{Iss: "sobs-rum", App: appName, Origin: origin, Iat: now, Exp: now + int64(ttlSec), Jti: rumJTI()}
