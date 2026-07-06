@@ -66,13 +66,34 @@ var buildErr error
 // buildBinaries builds both the sobs server and the seeder helper ONCE for the whole test
 // run. Both need CGO/the chdb build tag active, so they're built with `go build -tags chdb`
 // even though this harness process itself only needs the tag on this file.
+//
+// When SOBS_GOCOVER is set, the sobs binary is additionally built with `-cover
+// -covermode=atomic -coverpkg=./...`: every per-profile subprocess launch then flushes its
+// coverage counters into GOCOVERDIR on exit (see cmd/sobs/main.go's GOCOVERDIR-gated
+// SIGTERM/SIGINT hook). -covermode=atomic is required (not just -cover, which defaults to
+// -covermode=set): runtime/coverage's explicit write API — needed here since this is a live
+// server, not a one-shot binary that exits via testing.Main — only works against atomic
+// counters. The build's working directory is pinned to the module root (.., one level up
+// from this package) rather than left at this test binary's own default: -coverpkg=./...
+// resolves relative to the invoking process's cwd, and building from goldenreplay/ silently
+// matches zero packages ("no packages being built depend on matches for pattern ./...") — an
+// empty coverpkg set, not a build error, so the binary would "successfully" build with no
+// instrumentation at all. This is how the corpus's Go integration coverage is measured;
+// normal (non-coverage) test runs are unaffected since the flag is opt-in.
 func buildBinaries(t *testing.T) (sobs, seeder string) {
 	buildOnce.Do(func() {
 		dir := t.TempDir()
 		sobsBinary = filepath.Join(dir, "sobs")
 		seederBinary = filepath.Join(dir, "seeder")
-		if out, err := exec.Command("go", "build", "-o", sobsBinary, "../cmd/sobs").CombinedOutput(); err != nil {
-			buildErr = fmt.Errorf("go build ../cmd/sobs: %w\n%s", err, out)
+		sobsArgs := []string{"build", "-o", sobsBinary}
+		if os.Getenv("SOBS_GOCOVER") != "" {
+			sobsArgs = append(sobsArgs, "-cover", "-covermode=atomic", "-coverpkg=./...")
+		}
+		sobsArgs = append(sobsArgs, "./cmd/sobs")
+		buildCmd := exec.Command("go", sobsArgs...)
+		buildCmd.Dir = ".."
+		if out, err := buildCmd.CombinedOutput(); err != nil {
+			buildErr = fmt.Errorf("go build ./cmd/sobs: %w\n%s", err, out)
 			return
 		}
 		if out, err := exec.Command("go", "build", "-tags", "chdb", "-o", seederBinary, "./seeder").CombinedOutput(); err != nil {
@@ -226,6 +247,13 @@ func runProfile(t *testing.T, profile string, routes []route, port int, binary, 
 	set := func(k, v string) { env = setEnvVar(env, k, v) }
 	set("SOBS_DATA_DIR", dataDir)
 	set("SOBS_PORT", strconv.Itoa(port))
+	if gcd := os.Getenv("GOCOVERDIR"); gcd != "" {
+		// Every profile's subprocess writes into the SAME GOCOVERDIR — Go's coverage counter
+		// files are uniquely named per process instance, so concurrent profile runs (see the
+		// bounded-concurrency fan-out in TestGoldenCorpus) accumulate safely rather than
+		// clobbering each other.
+		set("GOCOVERDIR", gcd)
+	}
 	for k, v := range envOverlay {
 		if v == "$UPSTREAM_FIXTURES$" {
 			v = upstreamDir
@@ -294,8 +322,8 @@ func bootServer(binary string, env []string, port int) (*exec.Cmd, error) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		lastErr = fmt.Errorf("server did not become ready: %s", stderr.String())
 		stopServer(cmd)
+		lastErr = fmt.Errorf("server did not become ready: %s", stderr.String())
 		time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
 	}
 	return nil, lastErr
@@ -307,10 +335,13 @@ func stopServer(cmd *exec.Cmd) {
 	}
 	_ = cmd.Process.Signal(os.Interrupt)
 	done := make(chan struct{})
-	go func() { _, _ = cmd.Process.Wait(); close(done) }()
+	// cmd.Wait (not cmd.Process.Wait) also drains the goroutines exec started to copy the
+	// child's stderr into cmd.Stderr — skipping that would let bootServer's error path above
+	// read a stderr buffer that hasn't finished filling yet.
+	go func() { _ = cmd.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
 	}
 }
