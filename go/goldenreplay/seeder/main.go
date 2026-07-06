@@ -65,12 +65,14 @@ func main() {
 	}
 	defer db.Close()
 
+	// See timeshift.go for what this does and why (the golden-corpus time-shift utility).
+	shift := captureShift()
 	for table, rows := range delta {
 		var insertErr error
 		if table == aggTable {
-			insertErr = insertAggRows(db, rows)
+			insertErr = insertAggRows(db, rows, shift)
 		} else {
-			insertErr = insertRaw(db, table, rows)
+			insertErr = insertRaw(db, table, rows, shift)
 		}
 		if insertErr != nil {
 			fmt.Fprintf(os.Stderr, "insert into %s: %v\n", table, insertErr)
@@ -101,11 +103,23 @@ const aggTable = "otel_metrics_1m_agg"
 // v_otel_metrics_1m (avgMerge/sumMerge GROUP BY the same key this was captured at) displays. It
 // would only under-weight a bucket relative to others if some OTHER query re-aggregated multiple
 // MinuteBuckets/AttrFingerprints together, which no route in the corpus does.
-func insertAggRows(db store.DB, rawRows []json.RawMessage) error {
+func insertAggRows(db store.DB, rawRows []json.RawMessage, shift time.Duration) error {
 	for _, raw := range rawRows {
 		var row map[string]any
 		if err := json.Unmarshal(raw, &row); err != nil {
 			return fmt.Errorf("decode agg row: %w", err)
+		}
+		// MinuteBucket faces the same capture-session-vs-pinned-date and now()-scoped-query
+		// staleness issue as insertRaw's Timestamp/TimeUnix fields (see shiftTimeString) —
+		// this table has no Map columns, so a plain map[string]any round-trip is safe here.
+		if s, ok := row["MinuteBucket"].(string); ok {
+			shifted, changed, err := shiftTimeString(s, dateTimeLayout, shift)
+			if err != nil {
+				return fmt.Errorf("shift agg MinuteBucket: %w", err)
+			}
+			if changed {
+				row["MinuteBucket"] = shifted
+			}
 		}
 		_, err := db.Execute(
 			// CAST(? AS Float64/UInt64) matters: a bare numeric literal that happens to be
@@ -131,7 +145,7 @@ func insertAggRows(db store.DB, rawRows []json.RawMessage) error {
 // parameterized INSERT, not the bulk-ingest JSONEachRow path — so store.DB's InsertJSONEachRow
 // (which deliberately enforces that app-level allowlist) is the wrong call here. Executing the
 // raw statement directly bypasses it, exactly as the Python fixture seeder does.
-func insertRaw(db store.DB, table string, rows []json.RawMessage) error {
+func insertRaw(db store.DB, table string, rows []json.RawMessage, shift time.Duration) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -140,7 +154,11 @@ func insertRaw(db store.DB, table string, rows []json.RawMessage) error {
 	b.WriteString(table)
 	b.WriteString(" FORMAT JSONEachRow\n")
 	for _, row := range rows {
-		b.Write(row)
+		shifted, err := shiftRowTimestamps(row, shift)
+		if err != nil {
+			return fmt.Errorf("shift timestamps in %s row: %w", table, err)
+		}
+		b.Write(shifted)
 		b.WriteByte('\n')
 	}
 	_, err := db.Execute(b.String())
