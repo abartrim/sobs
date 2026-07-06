@@ -65,13 +65,33 @@ func main() {
 	}
 	defer db.Close()
 
-	// Truncated to whole seconds: every captured Timestamp/TimeUnix in the capture session
-	// carries all-zero sub-second digits (e.g. "...000000000"), and several golden fixtures
-	// (e.g. summaryrich) mask only the human-meaningful part of a rendered timestamp,
-	// leaving the literal fractional suffix in the golden text. A sub-second-precision
-	// shift (time.Since's raw value) would inject real nanosecond jitter into that
-	// unmasked suffix and break byte parity even though the row's meaning is unchanged.
-	shift := time.Since(referenceCaptureTime).Truncate(time.Second)
+	// Truncated to whole HOURS, not just whole seconds:
+	//
+	//  - Sub-second jitter: every captured Timestamp/TimeUnix in the capture session
+	//    carries all-zero sub-second digits (e.g. "...000000000"), and some golden
+	//    fixtures (e.g. summaryrich) mask only the human-meaningful part of a rendered
+	//    timestamp, leaving the literal fractional suffix in the golden text — any
+	//    sub-second shift component would inject nanosecond jitter into that unmasked
+	//    suffix and break byte parity even though the row's meaning is unchanged.
+	//  - Hour-of-day buckets: seasonal/periodicity analysis (metric_candidates.go,
+	//    chart_anomaly_engine.go) groups rows by toHour(Timestamp). The whole capture
+	//    session fits inside a single hour-plus-change window, so several profiles (e.g.
+	//    seasonalauto: 155 rows, all hour 11) rely on their rows staying in the SAME hour
+	//    bucket relative to each other. A shift with a sub-hour remainder (e.g.
+	//    "+1d7h35m") rotates rows by a fractional hour, which can push some — but not
+	//    all — rows across an hour boundary and split one bucket into two (this exact
+	//    regression appeared and was caught while validating this fix: "Hour Of Day: 1
+	//    bucket(s)" in golden became "2 bucket(s)" in Go). Truncating to whole hours
+	//    applies the identical integer-hour rotation to every row, so any two rows that
+	//    started in the same hour stay in the same hour after shifting (just relabeled to
+	//    a different specific hour number, which no golden fixture asserts on directly).
+	//
+	// Truncate (not Round) matters: it only ever rounds DOWN, so the shifted timestamp
+	// never overshoots into the future the way referenceCaptureTime's own choice (anchor
+	// to the session max, not a midpoint — see below) already guards against. The
+	// discarded sub-hour remainder (at most ~1h) is negligible against the multi-hour
+	// "recent" windows (24h/48h) every route below actually checks.
+	shift := time.Since(referenceCaptureTime).Truncate(time.Hour)
 	for table, rows := range delta {
 		var insertErr error
 		if table == aggTable {
