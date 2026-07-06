@@ -10,7 +10,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.go
-    image: ghcr.io/abartrim/sobs-go:latest
+    image: ghcr.io/abartrim/sobs:latest
     container_name: sobs
     user: "10001:10001"
     security_opt:

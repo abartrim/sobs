@@ -62,7 +62,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
   go-build-test:
-    name: Go Build & Test
+    name: Build & Test
     runs-on: sobs-runners
     permissions:
       contents: read
@@ -96,7 +96,7 @@ jobs:
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
 
   docker-go-smoke:
-    name: Go Image Build & Smoke
+    name: Image Build & Smoke
     runs-on: sobs-runners
     # Builds its own image from source — independent of go-build-test, so run in parallel.
     permissions:
@@ -112,10 +112,10 @@ jobs:
           docker build --network=host \
             --build-arg GOPROXY="${GOPROXY}" \
             --build-arg GOSUMDB="${GOSUMDB}" \
-            -f Dockerfile.go -t sobs-go:ci .
+            -f Dockerfile.go -t sobs:ci .
 
       - name: Start the container (empty /data — must self-seed its schema)
-        run: docker run -d --name sobs-go -p 4317:4317 sobs-go:ci
+        run: docker run -d --name sobs -p 4317:4317 sobs:ci
 
       - name: Smoke-test the running image
         run: |
@@ -141,7 +141,7 @@ jobs:
 
       - name: Container logs
         if: always()
-        run: docker logs sobs-go || true
+        run: docker logs sobs || true
 
   rum-build:
     name: RUM JS Build & Type Check
@@ -216,7 +216,7 @@ jobs:
         run: npm run lint:examples
 
   docker:
-    name: Build & Push Docker Image (Go)
+    name: Build & Push Docker Image
     runs-on: sobs-runners
     # The published image is the Go server (the cutover artifact). Gate on the Go pipeline —
     # go-build-test includes the golden-corpus replay (former parity job's role) — so a release
@@ -270,7 +270,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
 
-      - name: Build and push multi-arch Docker image (Go)
+      - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v7
         with:
           context: .

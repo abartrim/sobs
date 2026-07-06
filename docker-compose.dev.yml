@@ -10,7 +10,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.go.dev
-    image: sobs-go-dev:latest
+    image: sobs-dev:latest
     user: "0:0" # air writes ./go/tmp in the bind-mounted (host-owned) source
     volumes:
       - ./go:/src/go
