@@ -92,7 +92,7 @@ func loadConfig() config {
 	return config{
 		Parity:           os.Getenv("SOBS_PARITY") == "1",
 		DataDir:          envOr("SOBS_DATA_DIR", "./data"),
-		Port:             envOr("SOBS_PORT", envOr("PORT", "44317")),
+		Port:             envPort("44317", "SOBS_PORT", "PORT"),
 		StaticDir:        envOr("SOBS_STATIC_DIR", "static"),
 		TemplateDir:      envOr("SOBS_TEMPLATE_DIR", "templates"),
 		SecretKey:        envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
@@ -111,6 +111,26 @@ func envOr(k, def string) string {
 	return def
 }
 
+// envPort resolves the listen port from the given environment variables in priority order,
+// skipping any value shaped like Kubernetes' auto-injected service-link URL (e.g.
+// "tcp://10.152.183.152:44317") rather than a bare port number. Kubernetes injects
+// "<SVCNAME>_PORT=tcp://<cluster-ip>:<port>" into every pod in a namespace for each Service
+// present when the pod starts (enableServiceLinks defaults to true) — and the reference
+// k8s/deployment.yaml's own Service is named "sobs", so any cluster following it collides
+// directly with SOBS_PORT (caught deploying to the pab canary: the injected URL reached
+// net.Listen verbatim and crashed with "too many colons in address"). A real operator- or
+// platform-supplied SOBS_PORT/PORT is always a bare port number, so a URL-shaped value is
+// never an intentional override — treat it as unset and fall through to the next candidate,
+// then def.
+func envPort(def string, names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" && !strings.Contains(v, "://") {
+			return v
+		}
+	}
+	return def
+}
+
 // resolveBindAddr mirrors app.py's __main__ bind resolution: HYPERCORN_BIND / GUNICORN_BIND
 // override the full host:port; otherwise SOBS_HOST (default 0.0.0.0, matching app.py's
 // f"0.0.0.0:{port}" default — bind all interfaces) plus the resolved port.
@@ -124,7 +144,7 @@ func resolveBindAddr(port string) string {
 // runHealthcheck probes the local /health endpoint; returns 0 if it answers 200, else 1.
 func runHealthcheck() int {
 	client := http.Client{Timeout: 4 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + envOr("SOBS_PORT", envOr("PORT", "44317")) + "/health")
+	resp, err := client.Get("http://127.0.0.1:" + envPort("44317", "SOBS_PORT", "PORT") + "/health")
 	if err != nil {
 		log.Printf("healthcheck: %v", err)
 		return 1
