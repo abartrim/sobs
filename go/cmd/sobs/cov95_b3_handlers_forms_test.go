@@ -1542,7 +1542,7 @@ func TestViewCustomDashboard_GetChartsError(t *testing.T) {
 		ExecuteFunc: func(string, ...any) (*store.Result, error) { return nil, errors.New("boom") },
 	}}
 	w := httptest.NewRecorder()
-	s.viewCustomDashboard(w, map[string]any{"Id": "d1", "Name": "Dash", "Description": "desc"})
+	s.viewCustomDashboard(w, httptest.NewRequest(http.MethodGet, "/", nil), map[string]any{"Id": "d1", "Name": "Dash", "Description": "desc"})
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", w.Code)
 	}
@@ -1551,7 +1551,7 @@ func TestViewCustomDashboard_GetChartsError(t *testing.T) {
 func TestViewCustomDashboard_Success(t *testing.T) {
 	s := &server{cfg: config{TemplateDir: "../../../templates"}, db: &storetest.FakeDB{}}
 	w := httptest.NewRecorder()
-	s.viewCustomDashboard(w, map[string]any{"Id": "d1", "Name": "Dash", "Description": "desc"})
+	s.viewCustomDashboard(w, httptest.NewRequest(http.MethodGet, "/", nil), map[string]any{"Id": "d1", "Name": "Dash", "Description": "desc"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
 	}

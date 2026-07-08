@@ -520,7 +520,7 @@ func (s *server) handleApiAiConversation(w http.ResponseWriter, r *http.Request)
 	ctx["item"] = item
 	ctx["from_ts"] = fromTS
 	ctx["to_ts"] = toTS
-	out, rerr := s.newEngine().Render("_ai_conversation_partial.html", ctx)
+	out, rerr := s.newEngine(r).Render("_ai_conversation_partial.html", ctx)
 	if rerr != nil {
 		textStatus(w, http.StatusInternalServerError,
 			"<p class='text-danger small'>Error loading conversation.</p>")

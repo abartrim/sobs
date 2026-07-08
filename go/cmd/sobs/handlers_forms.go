@@ -824,7 +824,7 @@ func (s *server) buildNotificationConditions(w http.ResponseWriter, r *http.Requ
 				if _, err := compileUserRegex(tagValue, false); err != nil {
 					// app.py:26002-26006: this error redirects to view_notifications carrying
 					// edit_rule=<id> when editing, else the plain location.
-					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), s.notifViewRedirect(editRuleID))
+					flashRedirect(w, "warning", "Invalid tag regex pattern: "+err.Error(), s.notifViewRedirect(r, editRuleID))
 					return nil, false
 				}
 			}
@@ -1002,7 +1002,7 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 	dash := rowMaps(res)[0]
 	switch {
 	case r.Method == http.MethodGet && rest == dashID:
-		s.viewCustomDashboard(w, dash)
+		s.viewCustomDashboard(w, r, dash)
 	case rest == dashID+"/delete":
 		s.deleteDashboard(w, dashID, cStr(dash, "Name"), cStr(dash, "Description"))
 	case rest == dashID+"/charts":
@@ -1021,7 +1021,7 @@ func (s *server) handleDashboardsFormSub(w http.ResponseWriter, r *http.Request)
 // viewCustomDashboard mirrors app.py view_custom_dashboard: render custom_dashboard_view.html
 // with the dashboard, its charts (each carrying a rebuilt chart_spec), and the static chart-
 // template catalog (CHART_TEMPLATES sorted by id + _default_chart_spec, embedded as an asset).
-func (s *server) viewCustomDashboard(w http.ResponseWriter, dash map[string]any) {
+func (s *server) viewCustomDashboard(w http.ResponseWriter, r *http.Request, dash map[string]any) {
 	dashID := cStr(dash, "Id")
 	dashboard := map[string]any{
 		"id":          dashID,
@@ -1038,7 +1038,7 @@ func (s *server) viewCustomDashboard(w http.ResponseWriter, dash map[string]any)
 		s.dbError(w, err)
 		return
 	}
-	s.renderPage(w, "custom_dashboard_view.html", "view_custom_dashboard", map[string]any{
+	s.renderPage(w, r, "custom_dashboard_view.html", "view_custom_dashboard", map[string]any{
 		"dashboard": dashboard,
 		"charts":    charts,
 		"templates": templates,

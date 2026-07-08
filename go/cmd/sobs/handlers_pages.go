@@ -132,7 +132,7 @@ func (s *server) handleSettingsTagsAuto(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.renderPageFlash(w, "settings_tags.html", "auto_tag_rules", "info",
+	s.renderPageFlash(w, r, "settings_tags.html", "auto_tag_rules", "info",
 		fmt.Sprintf("Auto-tag preview: %d candidate(s), %d existing skipped, %d invalid.",
 			len(candidates), stats["existing"], stats["invalid"]),
 		map[string]any{
@@ -273,7 +273,7 @@ func (s *server) handleMetricsRulesDashboardAuto(w http.ResponseWriter, r *http.
 	}
 
 	services, signals, sources := s.listDerivedSignalDimensions()
-	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules_dashboard", "info",
+	s.renderPageFlash(w, r, "metrics_rules.html", "auto_metrics_rules_dashboard", "info",
 		fmt.Sprintf("Auto-dashboard preview: %d candidate chart(s) from %d rule(s).",
 			len(candidates), len(rules)),
 		map[string]any{
@@ -400,7 +400,7 @@ func (s *server) handleMetricsRulesAutoPreview(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	s.renderPageFlash(w, "metrics_rules.html", "auto_metrics_rules", "info",
+	s.renderPageFlash(w, r, "metrics_rules.html", "auto_metrics_rules", "info",
 		fmt.Sprintf("Auto-rule preview: %d candidate(s), %d existing skipped, %d invalid.",
 			len(candidates), stats["existing"], stats["invalid"]),
 		map[string]any{
@@ -424,12 +424,12 @@ func textStatus(w http.ResponseWriter, status int, body string) {
 
 // renderPage renders an HTML template with baseContext merged with extra context vars and
 // writes it with Quart's text/html content type.
-func (s *server) renderPage(w http.ResponseWriter, templateName, endpoint string, extra map[string]any) {
+func (s *server) renderPage(w http.ResponseWriter, r *http.Request, templateName, endpoint string, extra map[string]any) {
 	ctx := s.baseContext(endpoint)
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	s.renderInto(w, s.newEngine(), templateName, ctx)
+	s.renderInto(w, s.newEngine(r), templateName, ctx)
 }
 
 // requestArgsContext mirrors Quart's `request` object for templates that read request.args
@@ -454,17 +454,17 @@ func (s *server) renderPageReq(w http.ResponseWriter, r *http.Request, templateN
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	s.renderInto(w, s.newEngine(), templateName, ctx)
+	s.renderInto(w, s.newEngine(r), templateName, ctx)
 }
 
 // renderPageFlash renders a page with a single pre-seeded flash (category, message) consumed
 // by get_flashed_messages — for handlers that flash() then render rather than redirect.
-func (s *server) renderPageFlash(w http.ResponseWriter, templateName, endpoint, flashCategory, flashMessage string, extra map[string]any) {
+func (s *server) renderPageFlash(w http.ResponseWriter, r *http.Request, templateName, endpoint, flashCategory, flashMessage string, extra map[string]any) {
 	ctx := s.baseContext(endpoint)
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	eng := s.newEngineFlash([]any{[]any{flashCategory, flashMessage}})
+	eng := s.newEngineFlash(r, []any{[]any{flashCategory, flashMessage}})
 	// Consuming the flash empties the session, so Quart clears the session cookie and marks
 	// the response Vary: Cookie (it read the request session).
 	w.Header().Set("Set-Cookie", sessionCookieName+"=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0"+sessionCookieAttrs())
@@ -491,7 +491,7 @@ func (s *server) handleViewQuery(w http.ResponseWriter, r *http.Request) {
 		textStatus(w, http.StatusNotFound, "Query page is unavailable until AI and guard settings are configured.")
 		return
 	}
-	s.renderPage(w, "query.html", "view_query", nil)
+	s.renderPage(w, r, "query.html", "view_query", nil)
 }
 
 // GET /table-explorer — app.py view_table_explorer: 404 string when disabled (fixture).
@@ -500,7 +500,7 @@ func (s *server) handleViewTableExplorer(w http.ResponseWriter, r *http.Request)
 		textStatus(w, http.StatusNotFound, "Table Explorer is unavailable until AI and guard settings are configured.")
 		return
 	}
-	s.renderPage(w, "table_explorer.html", "view_table_explorer", nil)
+	s.renderPage(w, r, "table_explorer.html", "view_table_explorer", nil)
 }
 
 // GET /dashboards — app.py list_dashboards: render custom_dashboards.html with the
@@ -538,7 +538,7 @@ func (s *server) handleListDashboards(w http.ResponseWriter, r *http.Request) {
 			"id": cStr(m, "Id"), "name": cStr(m, "Name"), "description": cStr(m, "Description"),
 		})
 	}
-	s.renderPage(w, "custom_dashboards.html", "list_dashboards", map[string]any{"dashboards": dashboards})
+	s.renderPage(w, r, "custom_dashboards.html", "list_dashboards", map[string]any{"dashboards": dashboards})
 }
 
 // GET /reports — app.py list_reports: render reports.html with all reports (_get_reports).
@@ -556,7 +556,7 @@ func (s *server) handleListReportsPage(w http.ResponseWriter, r *http.Request) {
 			"page_type": cStr(m, "PageType"), "filters": parseReportFiltersNative(cStr(m, "FiltersJson")),
 		})
 	}
-	s.renderPage(w, "reports.html", "list_reports", map[string]any{"reports": reports})
+	s.renderPage(w, r, "reports.html", "list_reports", map[string]any{"reports": reports})
 }
 
 // queryAllowedTablesBuiltin mirrors _QUERY_ALLOWED_TABLES_BUILTIN (app.py), pre-sorted. The
@@ -581,7 +581,7 @@ func (s *server) handleViewSettings(w http.ResponseWriter, r *http.Request) {
 	aiSettings := s.loadAllAISettings()
 	kEnabled, _ := s.appSetting("kubernetes.enabled")
 	backup, _ := s.appSetting("data_management.backup_enabled")
-	s.renderPage(w, "settings.html", "view_settings", map[string]any{
+	s.renderPage(w, r, "settings.html", "view_settings", map[string]any{
 		"tag_rule_count":             cnt("sobs_tag_rules"),
 		"anomaly_rule_count":         cnt("sobs_anomaly_rules"),
 		"agent_rule_count":           cnt("sobs_agent_rules"),
@@ -774,7 +774,7 @@ func (s *server) handleViewMetricsRules(w http.ResponseWriter, r *http.Request) 
 		openPanel = ""
 	}
 	services, signals, sources := s.listDerivedSignalDimensions()
-	s.renderPage(w, "metrics_rules.html", "view_metrics_rules", map[string]any{
+	s.renderPage(w, r, "metrics_rules.html", "view_metrics_rules", map[string]any{
 		"rules":                  s.loadAnomalyRulesCtx(),
 		"services":               services,
 		"signals":                signals,
@@ -919,7 +919,7 @@ func (s *server) handleViewNotifications(w http.ResponseWriter, r *http.Request)
 		vapidKeyAny = vapidPublicKey
 		vapidSourceAny = vapidKeySource
 	}
-	s.renderPage(w, "settings_notifications.html", "view_notifications", map[string]any{
+	s.renderPage(w, r, "settings_notifications.html", "view_notifications", map[string]any{
 		"channels":            s.loadNotificationChannels(),
 		"rules":               rules,
 		"notification_log":    s.loadNotificationLog(50),
@@ -1067,7 +1067,7 @@ func (s *server) handleViewEnrichmentCve(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	s.renderPage(w, "cve.html", "view_enrichment_cve", map[string]any{
+	s.renderPage(w, r, "cve.html", "view_enrichment_cve", map[string]any{
 		"cve_enabled":                  cveEnabled,
 		"cve_last_scan":                cveLastScan,
 		"github_backfill_max_releases": maxRel,
@@ -1161,7 +1161,7 @@ func (s *server) handleViewWorkItemsPage(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	s.renderPage(w, "work_items.html", "view_work_items", map[string]any{
+	s.renderPage(w, r, "work_items.html", "view_work_items", map[string]any{
 		"items": items, "total_items": totalItems, "services": services, "rules": rules,
 		"service_filter": serviceFilter, "rule_filter": ruleFilter,
 		"action_type_filter": actionTypeFilter, "status_filter": statusFilter,
@@ -1637,7 +1637,7 @@ func (s *server) handleViewAi(w http.ResponseWriter, r *http.Request) {
 	// saved/confirmed), NOT a static blob — observed models like claude-opus must appear as inferred.
 	aiPricing, aiPricingSources := s.loadAiPricingWithSources()
 
-	s.renderPage(w, "ai.html", "view_ai", map[string]any{
+	s.renderPage(w, r, "ai.html", "view_ai", map[string]any{
 		"ai_items": aiItems, "total": total, "limit": limit, "offset": offset,
 		"service": service, "selected_services": toAnySlice(selectedServices),
 		"model": model, "selected_models": toAnySlice(selectedModels),
@@ -1740,7 +1740,7 @@ func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
 
 	// ── No incident reference: empty render (the corpus-tested branch) ──────────
 	if traceID == "" && errorID == "" && rumSession == "" {
-		s.renderPage(w, "incident.html", "view_incident", map[string]any{
+		s.renderPage(w, r, "incident.html", "view_incident", map[string]any{
 			"trace_id": "", "error_id": "", "rum_session": "", "rum_ts": "",
 			"primary_error": nil, "primary_trace": nil, "primary_rum": nil,
 			"service": "", "from_ts": "", "to_ts": "", "window_minutes": windowMinutes,
@@ -2072,7 +2072,7 @@ func (s *server) handleViewIncident(w http.ResponseWriter, r *http.Request) {
 
 	errorMsg := timeError
 
-	s.renderPage(w, "incident.html", "view_incident", map[string]any{
+	s.renderPage(w, r, "incident.html", "view_incident", map[string]any{
 		"trace_id":                 traceID,
 		"error_id":                 errorID,
 		"rum_session":              rumSession,
@@ -2281,7 +2281,7 @@ func (s *server) handleViewMetricsAnomaly(w http.ResponseWriter, r *http.Request
 
 	services, signals, sources := s.listDerivedSignalDimensions()
 
-	s.renderPage(w, "metrics_anomaly.html", "view_metrics_anomaly", map[string]any{
+	s.renderPage(w, r, "metrics_anomaly.html", "view_metrics_anomaly", map[string]any{
 		"rows": rowsToAny(rows), "total": len(rows),
 		"service": service, "metric": metric, "signal": signal, "source": source,
 		"attr_fp": attrFp, "from_ts": fromTs, "to_ts": toTs, "hours": hours, "error_msg": errorMsg,
@@ -2740,7 +2740,7 @@ func (s *server) handleViewMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	services, signals, sources := s.listDerivedSignalDimensions()
-	s.renderPage(w, "metrics.html", "view_metrics", map[string]any{
+	s.renderPage(w, r, "metrics.html", "view_metrics", map[string]any{
 		"rows": rows, "total": total, "limit": limit, "offset": offset,
 		"service": service, "selected_services": strsToAny(selectedServices),
 		"signal": signal, "selected_signals": strsToAny(selectedSignals),
@@ -2869,7 +2869,7 @@ func (s *server) handleViewTraces(w http.ResponseWriter, r *http.Request) {
 		errorMsg = timeError
 	}
 
-	s.renderPage(w, "traces.html", "view_traces", map[string]any{
+	s.renderPage(w, r, "traces.html", "view_traces", map[string]any{
 		"spans": spans, "total": total, "limit": limit, "offset": offset,
 		"service": service, "selected_services": strsToAny(selectedServices), "trace_id": traceID,
 		"from_ts": fromTS, "to_ts": toTS, "error_msg": errorMsg, "q": qParam, "services": services,
@@ -3197,7 +3197,7 @@ func (s *server) handleViewErrors(w http.ResponseWriter, r *http.Request) {
 	}
 	workItemLinks := s.loadWorkItemLinksForRefIDs(refIDs)
 
-	s.renderPage(w, "errors.html", "view_errors", map[string]any{
+	s.renderPage(w, r, "errors.html", "view_errors", map[string]any{
 		"errors": errors, "total": total, "limit": limit, "offset": offset,
 		"service": service, "selected_services": toAnySlice(selectedServices),
 		"from_ts": fromTs, "to_ts": toTs, "error_msg": errorMsg, "q": q, "resolved": resolved,
@@ -3315,7 +3315,7 @@ func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.renderPage(w, "summary.html", "summary", map[string]any{
+	s.renderPage(w, r, "summary.html", "summary", map[string]any{
 		"stats":         stats,
 		"recent_errors": recentErrors,
 		"recent_logs":   recentLogs,
@@ -3359,7 +3359,7 @@ func (s *server) handleViewWebTraffic(w http.ResponseWriter, r *http.Request) {
 			eventTypes = append(eventTypes, []any{cStr(m, "EventName"), cInt(m, "cnt")})
 		}
 	}
-	s.renderPage(w, "web_traffic.html", "view_web_traffic", map[string]any{
+	s.renderPage(w, r, "web_traffic.html", "view_web_traffic", map[string]any{
 		"total": total, "top_urls": topUrls, "event_types": eventTypes,
 		"from_ts": fromTs, "to_ts": toTs, "error_msg": timeError,
 		"geo_enabled": s.appSettingBool("enrichment.geo_enabled", true),
@@ -3373,7 +3373,7 @@ func (s *server) handleViewAgentRules(w http.ResponseWriter, r *http.Request) {
 		s.createAgentRule(w, r)
 		return
 	}
-	s.renderPage(w, "settings_agents.html", "view_agent_rules", map[string]any{
+	s.renderPage(w, r, "settings_agents.html", "view_agent_rules", map[string]any{
 		"rules":          s.loadAgentRulesCtx(),
 		"runs":           s.loadAgentRunsCtx(20),
 		"anomaly_rules":  s.loadAnomalyRulesCtx(),
@@ -3566,7 +3566,7 @@ func (s *server) handleMcpSettingsPage(w http.ResponseWriter, r *http.Request) {
 	if v, ok := s.appSetting("mcp.enabled"); ok {
 		enabled = v == "1"
 	}
-	s.renderPage(w, "settings_mcp.html", "mcp.mcp_settings_page", map[string]any{
+	s.renderPage(w, r, "settings_mcp.html", "mcp.mcp_settings_page", map[string]any{
 		"mcp_keys": s.mcpSafeKeys(), "mcp_enabled": enabled, "now_iso": "2024-01-02T03:04:05+00:00",
 	})
 }
@@ -3612,10 +3612,10 @@ func (s *server) handleViewTagRules(w http.ResponseWriter, r *http.Request) {
 		"auto_preview":    []any{}, "auto_summary": nil, "auto_open_panel": openPanel,
 	}
 	if editNotFound {
-		s.renderPageFlash(w, "settings_tags.html", "view_tag_rules", "warning", "Tag rule not found for editing", ctx)
+		s.renderPageFlash(w, r, "settings_tags.html", "view_tag_rules", "warning", "Tag rule not found for editing", ctx)
 		return
 	}
-	s.renderPage(w, "settings_tags.html", "view_tag_rules", ctx)
+	s.renderPage(w, r, "settings_tags.html", "view_tag_rules", ctx)
 }
 
 // GET /settings/ai — app.py view_ai_settings. Empty AI settings -> all keys "".
@@ -3720,7 +3720,7 @@ func (s *server) handleViewAiSettings(w http.ResponseWriter, r *http.Request) {
 	expiresAt := strings.TrimSpace(all["ai.github_token_expires_at"])
 	defPricing, _ := parseJSONValue(defaultAiPricingJSON)
 	savedPricing, sources := s.loadAiPricingWithSources()
-	s.renderPage(w, "settings_ai.html", "view_ai_settings", map[string]any{
+	s.renderPage(w, r, "settings_ai.html", "view_ai_settings", map[string]any{
 		"settings":                   settings,
 		"anomaly_rules":              s.loadAnomalyRulesCtx(),
 		"tag_rules":                  s.loadTagRulesCtx(),
@@ -3816,7 +3816,7 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 		}
 	}
 	expiresAt := strings.TrimSpace(s.loadAISetting("ai.github_token_expires_at", ""))
-	s.renderPage(w, "settings_repositories.html", "view_settings_repositories", map[string]any{
+	s.renderPage(w, r, "settings_repositories.html", "view_settings_repositories", map[string]any{
 		"apps":                       apps,
 		"github_token_configured":    strings.TrimSpace(s.loadAISetting("ai.github_token", "")) != "",
 		"default_agent_repo":         strings.TrimSpace(s.loadAISetting("ai.github_repo", "")),
@@ -3856,7 +3856,7 @@ func (s *server) handleViewK8sSettings(w http.ResponseWriter, r *http.Request) {
 	if msgType == "" {
 		msgType = "success"
 	}
-	s.renderPage(w, "settings_kubernetes.html", "view_k8s_settings", map[string]any{
+	s.renderPage(w, r, "settings_kubernetes.html", "view_k8s_settings", map[string]any{
 		"k8s_settings": map[string]any{"kubernetes.enabled": val},
 		"flash_msg":    r.URL.Query().Get("msg"),
 		"flash_type":   msgType,
@@ -3899,7 +3899,7 @@ func (s *server) handleViewEnrichmentSettings(w http.ResponseWriter, r *http.Req
 			maxRel = n
 		}
 	}
-	s.renderPage(w, "settings_enrichment.html", "view_enrichment_settings", map[string]any{
+	s.renderPage(w, r, "settings_enrichment.html", "view_enrichment_settings", map[string]any{
 		"geo_enabled":                        s.appSettingBool("enrichment.geo_enabled", true),
 		"cve_enabled":                        s.appSettingBool("enrichment.cve_enabled", true),
 		"cve_last_scan":                      cveLastScan,
@@ -3930,7 +3930,7 @@ func (s *server) handleViewMaskingSettings(w http.ResponseWriter, r *http.Reques
 	for _, k := range customKeys {
 		keySet[k] = true
 	}
-	s.renderPage(w, "settings_masking.html", "view_masking_settings", map[string]any{
+	s.renderPage(w, r, "settings_masking.html", "view_masking_settings", map[string]any{
 		"custom_keys":                strsToAny(customKeys),
 		"custom_patterns":            strsToAny(customPatterns),
 		"default_keys":               strsToAny(defaultKeys),
@@ -3948,13 +3948,13 @@ func (s *server) handleViewKubernetes(w http.ResponseWriter, r *http.Request) {
 		textStatus(w, http.StatusNotFound, "Kubernetes health view is disabled. Enable it in Settings → Kubernetes.")
 		return
 	}
-	s.renderPage(w, "kubernetes.html", "view_kubernetes", nil)
+	s.renderPage(w, r, "kubernetes.html", "view_kubernetes", nil)
 }
 
 // GET /dashboards/new — app.py new_dashboard_form: render custom_dashboards.html with an
 // empty dashboards list and the new-form flag.
 func (s *server) handleNewDashboardForm(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, "custom_dashboards.html", "new_dashboard_form", map[string]any{
+	s.renderPage(w, r, "custom_dashboards.html", "new_dashboard_form", map[string]any{
 		"dashboards":    []any{},
 		"show_new_form": true,
 	})

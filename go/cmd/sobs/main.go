@@ -98,7 +98,7 @@ func loadConfig() config {
 		SecretKey:        envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"),
 		EncryptionSecret: readEnvOrFile("SOBS_SETTINGS_ENCRYPTION_KEY", "SOBS_SETTINGS_ENCRYPTION_KEY_FILE"),
 		BuildVersion:     envOr("SOBS_BUILD_VERSION", "dev"),
-		BasePath:         os.Getenv("SOBS_BASE_PATH"),
+		BasePath:         normalizeBasePath(os.Getenv("SOBS_BASE_PATH")),
 		// app.py: _env_flag("SOBS_ENABLE_FIRST_RUN_TOUR", True) — default ON, {1,true,yes,on}.
 		FirstRunTourEnabled: envFlag("SOBS_ENABLE_FIRST_RUN_TOUR", true),
 	}

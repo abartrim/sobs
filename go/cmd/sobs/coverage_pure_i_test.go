@@ -291,7 +291,7 @@ func TestSliceI_notifViewRedirect(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.desc, func(t *testing.T) {
 			s := &server{cfg: config{BasePath: c.basePath}}
-			got := s.notifViewRedirect(c.editRuleID)
+			got := s.notifViewRedirect(httptest.NewRequest(http.MethodGet, "/", nil), c.editRuleID)
 			if got != c.want {
 				t.Fatalf("notifViewRedirect(base=%q, id=%q) = %q; want %q",
 					c.basePath, c.editRuleID, got, c.want)

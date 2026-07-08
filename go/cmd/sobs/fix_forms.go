@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -12,8 +13,8 @@ import (
 // url_for("view_notifications", edit_rule=edit_rule_id) when editing (the tag-regex error path),
 // else url_for("view_notifications"). It mirrors render.go's url_for query encoding byte-for-byte
 // (Werkzeug-style QueryEscape with the %3A->: relaxation) so the redirect Location matches Python.
-func (s *server) notifViewRedirect(editRuleID string) string {
-	base := s.cfg.BasePath + "/settings/notifications"
+func (s *server) notifViewRedirect(r *http.Request, editRuleID string) string {
+	base := s.effectiveBasePath(r) + "/settings/notifications"
 	if editRuleID == "" {
 		return base
 	}

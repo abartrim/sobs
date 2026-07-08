@@ -184,7 +184,7 @@ func (s *server) handleDataManagementGet(w http.ResponseWriter, r *http.Request)
 	if flashType == "" {
 		flashType = "success"
 	}
-	s.renderPage(w, "settings_data_management.html", "view_dm_settings", map[string]any{
+	s.renderPage(w, r, "settings_data_management.html", "view_dm_settings", map[string]any{
 		"dm_settings":       dm,
 		"dm_secret_present": dmSecretPresent,
 		"flash_msg":         q.Get("msg"), "flash_type": flashType,

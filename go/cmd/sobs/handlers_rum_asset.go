@@ -225,7 +225,7 @@ func (s *server) handleRumAssetUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	assetURL, _ := s.urlFor([]any{"rum_asset_download"}, map[string]any{"asset_id": assetID}, []string{"asset_id"})
+	assetURL, _ := s.urlFor(s.effectiveBasePath(r), []any{"rum_asset_download"}, map[string]any{"asset_id": assetID}, []string{"asset_id"})
 	writeJSON(w, http.StatusCreated, jsonenc.NewObject().
 		Set("id", assetID).
 		Set("type", assetType).
