@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -144,10 +145,11 @@ func TestChartObjInt(t *testing.T) {
 
 func TestNotifViewRedirect(t *testing.T) {
 	s := &server{cfg: config{BasePath: ""}}
-	if got := s.notifViewRedirect(""); got != "/settings/notifications" {
+	req := httptest.NewRequest("GET", "/", nil)
+	if got := s.notifViewRedirect(req, ""); got != "/settings/notifications" {
 		t.Errorf("no edit id = %q", got)
 	}
-	got := s.notifViewRedirect("rule:1")
+	got := s.notifViewRedirect(req, "rule:1")
 	if got != "/settings/notifications?edit_rule=rule:1" {
 		t.Errorf("edit id with colon = %q", got)
 	}

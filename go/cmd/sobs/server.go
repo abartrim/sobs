@@ -97,6 +97,7 @@ func (s *server) enqueueWrite(op func() error) error {
 }
 
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r = s.applyBasePath(r)
 	rec := &headerCapture{ResponseWriter: w, req: r, cfg: s.cfg}
 	// Optional auth layers (no-ops unless SOBS_API_KEY / SOBS_BASIC_AUTH_* / SOBS_EXTERNAL_AUTH_URL
 	// are set), written through rec so blocking responses still carry the security headers. Routed

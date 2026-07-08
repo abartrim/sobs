@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -59,7 +61,7 @@ func renderIncidentHTML(t *testing.T, traceID, service string) string {
 		"time_error":      "",
 		"error_msg":       "",
 	}
-	out, err := s.newEngine().Render("incident.html", ctx)
+	out, err := s.newEngine(httptest.NewRequest(http.MethodGet, "/", nil)).Render("incident.html", ctx)
 	if err != nil {
 		t.Fatalf("render error: %v", err)
 	}

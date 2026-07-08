@@ -58,7 +58,7 @@ func TestNewEngineFlash_Globals(t *testing.T) {
 
 	s := &server{cfg: config{TemplateDir: dir}, db: &storetest.FakeDB{}}
 	flashes := []any{[]any{"success", "Saved!"}, []any{"error", "Oops"}}
-	eng := s.newEngineFlash(flashes)
+	eng := s.newEngineFlash(httptest.NewRequest(http.MethodGet, "/", nil), flashes)
 
 	out, err := eng.Render("probe.html", map[string]any{})
 	if err != nil {
@@ -89,44 +89,44 @@ func TestUrlFor_StaticAndEndpoints(t *testing.T) {
 	s := &server{cfg: config{BasePath: ""}}
 
 	// static endpoint: filename kwarg -> /static/<filename>.
-	out, err := s.urlFor([]any{"static"}, map[string]any{"filename": "app.css"}, []string{"filename"})
+	out, err := s.urlFor("", []any{"static"}, map[string]any{"filename": "app.css"}, []string{"filename"})
 	if err != nil || out != "/static/app.css" {
 		t.Errorf("urlFor(static) = (%v, %v), want /static/app.css", out, err)
 	}
 
 	// A named endpoint with a path param substituted in, no extra query params.
-	out, err = s.urlFor([]any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc-123"}, []string{"chat_id"})
+	out, err = s.urlFor("", []any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc-123"}, []string{"chat_id"})
 	if err != nil || out != "/api/ai/helper/chats/abc-123" {
 		t.Errorf("urlFor(chat_detail) = (%v, %v), want /api/ai/helper/chats/abc-123", out, err)
 	}
 
 	// A named endpoint with a path param AND an extra kwarg that becomes a query string.
-	out, err = s.urlFor([]any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc", "verbose": "1"},
+	out, err = s.urlFor("", []any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc", "verbose": "1"},
 		[]string{"chat_id", "verbose"})
 	if err != nil || out != "/api/ai/helper/chats/abc?verbose=1" {
 		t.Errorf("urlFor(chat_detail+query) = (%v, %v), want with ?verbose=1", out, err)
 	}
 
 	// A kwarg whose value is nil must be OMITTED from the query string entirely.
-	out, err = s.urlFor([]any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc", "grouped": nil},
+	out, err = s.urlFor("", []any{"ai_helper_chat_detail"}, map[string]any{"chat_id": "abc", "grouped": nil},
 		[]string{"chat_id", "grouped"})
 	if err != nil || out != "/api/ai/helper/chats/abc" {
 		t.Errorf("urlFor(nil kwarg omitted) = (%v, %v), want no query string", out, err)
 	}
 
 	// Unknown endpoint -> error.
-	if _, err := s.urlFor([]any{"totally_bogus_endpoint"}, nil, nil); err == nil {
+	if _, err := s.urlFor("", []any{"totally_bogus_endpoint"}, nil, nil); err == nil {
 		t.Error("expected an error for an unknown endpoint")
 	}
 
 	// No positional args at all -> error ("url_for requires an endpoint").
-	if _, err := s.urlFor(nil, nil, nil); err == nil {
+	if _, err := s.urlFor("", nil, nil, nil); err == nil {
 		t.Error("expected an error when no endpoint is given")
 	}
 
 	// BasePath is prefixed onto both static and rule paths.
 	sPrefixed := &server{cfg: config{BasePath: "/sobs"}}
-	out, err = sPrefixed.urlFor([]any{"static"}, map[string]any{"filename": "x.js"}, []string{"filename"})
+	out, err = sPrefixed.urlFor("/sobs", []any{"static"}, map[string]any{"filename": "x.js"}, []string{"filename"})
 	if err != nil || out != "/sobs/static/x.js" {
 		t.Errorf("urlFor with BasePath = (%v, %v), want /sobs/static/x.js", out, err)
 	}
@@ -136,7 +136,7 @@ func TestUrlFor_QueryEscaping(t *testing.T) {
 	s := &server{}
 	// Werkzeug-relaxed escaping: sub-delims like ' ( ) , : stay literal in query values, but
 	// space becomes '+' and other reserved chars are percent-escaped.
-	outAny, err := s.urlFor([]any{"ai_helper_chat_detail"},
+	outAny, err := s.urlFor("", []any{"ai_helper_chat_detail"},
 		map[string]any{"chat_id": "abc", "sql": "has_tag('env','prod') a b"},
 		[]string{"chat_id", "sql"})
 	if err != nil {

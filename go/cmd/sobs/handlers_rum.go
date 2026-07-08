@@ -332,7 +332,7 @@ func (s *server) handleViewRum(w http.ResponseWriter, r *http.Request) {
 		toVar = toTS
 	}
 
-	s.renderPage(w, "rum.html", "view_rum", map[string]any{
+	s.renderPage(w, r, "rum.html", "view_rum", map[string]any{
 		"events": events, "session_groups": sessionGroups, "total": total,
 		"limit": limit, "offset": offset, "view_mode": viewMode,
 		"event_type": eventType, "event_types": eventTypes, "error_source": errorSource, "error_sources": errorSources,

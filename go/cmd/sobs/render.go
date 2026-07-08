@@ -33,19 +33,22 @@ func pyTitle(s string) string {
 	return strings.Title(strings.ToLower(s)) //nolint:staticcheck
 }
 
-// newEngine builds the template engine with the globals the templates call.
-func (s *server) newEngine() *render.Engine { return s.newEngineFlash(nil) }
+// newEngine builds the template engine with the globals the templates call. r resolves the
+// effective base path (X-Forwarded-Prefix, falling back to SOBS_BASE_PATH — see
+// basepath.go) for this request's url_for/static links.
+func (s *server) newEngine(r *http.Request) *render.Engine { return s.newEngineFlash(r, nil) }
 
 // newEngineFlash is newEngine with pre-seeded flash messages (each []any{category, message})
 // that get_flashed_messages consumes — for handlers that flash() then render a page (rather
 // than redirect), e.g. the auto-rule preview pages.
-func (s *server) newEngineFlash(flashes []any) *render.Engine {
+func (s *server) newEngineFlash(r *http.Request, flashes []any) *render.Engine {
 	e := render.New(s.cfg.TemplateDir)
 	// Custom `mask` filter (app.py _mask_value_for_output): redacts sensitive keys/patterns
 	// per the active DLP rules. Depends on per-request settings, so install it here.
 	e.SetMaskFunc(s.maskValueForOutput)
+	base := s.effectiveBasePath(r)
 	e.AddFunc("url_for", func(pos []any, kw map[string]any) (any, error) {
-		return s.urlFor(pos, kw, e.KWOrder())
+		return s.urlFor(base, pos, kw, e.KWOrder())
 	})
 	// fmt_bytes (app.py _fmt_bytes): human-readable byte count, passed to the DM-stats page.
 	e.AddFunc("fmt_bytes", func(pos []any, kw map[string]any) (any, error) {
@@ -100,15 +103,18 @@ func argStr(pos []any, i int) string {
 }
 
 // urlFor mirrors Quart's url_for for the cases the templates use: a named endpoint
-// (optionally with path params) and the special 'static' endpoint with a filename.
-func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, error) {
+// (optionally with path params) and the special 'static' endpoint with a filename. base is
+// the effective base path for the current request (see basepath.go's effectiveBasePath) —
+// NOT s.cfg.BasePath directly, since a reverse proxy's X-Forwarded-Prefix can override it
+// per-request.
+func (s *server) urlFor(base string, pos []any, kw map[string]any, kwOrder []string) (any, error) {
 	if len(pos) == 0 {
 		return "", fmt.Errorf("url_for requires an endpoint")
 	}
 	endpoint, _ := pos[0].(string)
 	if endpoint == "static" {
 		fn, _ := kw["filename"].(string)
-		return s.cfg.BasePath + "/static/" + fn, nil
+		return base + "/static/" + fn, nil
 	}
 	rule, ok := endpointPaths[endpoint]
 	if !ok {
@@ -130,7 +136,7 @@ func (s *server) urlFor(pos []any, kw map[string]any, kwOrder []string) (any, er
 			qs = append(qs, werkzeugQueryEscape(k)+"="+werkzeugQueryEscape(v))
 		}
 	}
-	out := s.cfg.BasePath + rule
+	out := base + rule
 	if len(qs) > 0 {
 		out += "?" + strings.Join(qs, "&")
 	}
@@ -196,7 +202,7 @@ func (s *server) baseContext(endpoint string) map[string]any {
 // endpoint is the Quart endpoint name (used by base.html nav-active logic).
 func (s *server) handleHelpPage(endpoint, templateName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		eng := s.newEngine()
+		eng := s.newEngine(r)
 		out, err := eng.Render(templateName, s.baseContext(endpoint))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

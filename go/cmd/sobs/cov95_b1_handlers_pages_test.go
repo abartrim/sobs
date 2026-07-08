@@ -83,7 +83,7 @@ func TestRenderInto_TemplateError(t *testing.T) {
 	s := cov95B1TestServer()
 	rec := httptest.NewRecorder()
 	// A nonexistent template name forces eng.Render to return an error.
-	s.renderInto(rec, s.newEngine(), "this_template_does_not_exist.html", map[string]any{})
+	s.renderInto(rec, s.newEngine(httptest.NewRequest(http.MethodGet, "/", nil)), "this_template_does_not_exist.html", map[string]any{})
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status: got %d, want 500; body=%s", rec.Code, rec.Body.String())
 	}
