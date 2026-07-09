@@ -20,6 +20,14 @@ var repeatedSlashes = regexp.MustCompile(`/+`)
 
 // normalizeBasePath mirrors app.py's _normalize_base_path: collapse repeated slashes, ensure a
 // single leading slash and no trailing slash; "" and "/" both normalize to "" (no base path).
+//
+// This is the single chokepoint both effectiveBasePath (redirects, url_for-generated links) and
+// applyBasePath (inbound routing) go through, so it's also where an X-Forwarded-Prefix value —
+// attacker-controlled if SOBS is ever reached without a trusted proxy overwriting that header —
+// must be rejected as an open-redirect vector (CWE-601) rather than passed through. Collapsing
+// repeated slashes above already defuses the classic "//evil.com" case, but browsers also treat
+// a leading "/\" as protocol-relative (e.g. "/\evil.com" parses like "//evil.com"), so that
+// pattern needs an explicit reject too — CodeQL go/bad-redirect-check flagged exactly this gap.
 func normalizeBasePath(v string) string {
 	v = repeatedSlashes.ReplaceAllString(strings.TrimSpace(v), "/")
 	if v == "" || v == "/" {
@@ -27,6 +35,9 @@ func normalizeBasePath(v string) string {
 	}
 	if !strings.HasPrefix(v, "/") {
 		v = "/" + v
+	}
+	if len(v) > 1 && v[1] == '\\' {
+		return ""
 	}
 	v = strings.TrimSuffix(v, "/")
 	if v == "" || v == "/" {
