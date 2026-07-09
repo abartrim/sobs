@@ -265,9 +265,19 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # flavor.latest defaults to "auto", under which the type=ref,event=tag rule
+          # hardcodes latest=true for ANY tag push (metadata-action's procRefTag: `flavor.latest
+          # == 'auto' ? true : ...`) — this wins over the explicit enable= gate below regardless
+          # of its value, because whichever tag rule runs first (by priority: ref > raw > sha)
+          # sets the shared "should this build also get retagged latest" flag, and the ref rule
+          # always claims it. Confirmed empirically: tagging v0.2.0-beta.3 off go-main (not
+          # main) still produced a `latest` tag. Disable that blanket auto-latest and drive
+          # `latest` from the explicit raw rule alone.
+          flavor: |
+            latest=false
           tags: |
             type=sha,prefix=,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=ref,event=tag
 
       - name: Build and push multi-arch Docker image
