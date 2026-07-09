@@ -19,6 +19,11 @@ func TestNormalizeBasePath(t *testing.T) {
 		{"/sobs/", "/sobs"},
 		{"//sobs//nested//", "/sobs/nested"},
 		{"  /sobs  ", "/sobs"},
+		// CWE-601: a leading "/\" is browser-protocol-relative just like "//" (CodeQL
+		// go/bad-redirect-check) — reject it rather than let it flow into a redirect Location.
+		{"/\\evil.com", ""},
+		{"\\evil.com", ""},
+		{"/\\\\evil.com", ""},
 	}
 	for _, c := range cases {
 		if got := normalizeBasePath(c.in); got != c.want {
