@@ -1,0 +1,328 @@
+[
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "anomaly_overlay",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Metric with baseline band and per-point anomaly state markers (normal/warning/outlier)",
+    "drilldown": {
+      "bucket_seconds": 60,
+      "label": "Open anomaly details",
+      "target": "metrics",
+      "time_axis": "x"
+    },
+    "icon": "bi-activity",
+    "id": "anomaly_overlay",
+    "name": "Anomaly Overlay",
+    "query_shape": "Columns: time, value, baseline_mean, baseline_lower, baseline_upper, anomaly_state",
+    "sample_sql": "SELECT\n  time,\n  value,\n  baseline_mean,\n  baseline_lower,\n  baseline_upper,\n  anomaly_state\nFROM v_otel_metrics_anomaly\nWHERE ServiceName = 'my-service'\n  AND MetricName = 'my.metric'\n  AND time >= now() - INTERVAL 6 HOUR\nORDER BY time"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "box_plot",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Show distribution, quartiles, and outliers",
+    "drilldown": {
+      "label": "Open traces view",
+      "target": "traces"
+    },
+    "icon": "bi-boxes",
+    "id": "box_plot",
+    "name": "Distribution Box Plot",
+    "query_shape": "Columns: dimension, min, q1, median, q3, max",
+    "sample_sql": "SELECT\n  HTTPMethod AS dimension,\n  min(Duration) AS min,\n  quantile(0.25)(Duration) AS q1,\n  quantile(0.5)(Duration) AS median,\n  quantile(0.75)(Duration) AS q3,\n  max(Duration) AS max\nFROM otel_traces\nGROUP BY HTTPMethod\nORDER BY median DESC"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "raw",
+        "override_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value"
+      },
+      "template_id": "custom_echarts",
+      "visual": {
+        "custom_mapping_json": "{\"points\": {\"from\": \"rows\"}}",
+        "custom_option_json": "{\"tooltip\": {\"trigger\": \"axis\"}, \"xAxis\": {\"type\": \"time\"}, \"yAxis\": {\"type\": \"value\"}, \"series\": [{\"name\": \"Value\", \"type\": \"line\", \"data\": \"{{points}}\", \"showSymbol\": false, \"smooth\": true}]}",
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Bring your own SQL, mapping JSON, and raw ECharts option JSON.",
+    "drilldown": null,
+    "icon": "bi-code-slash",
+    "id": "custom_echarts",
+    "name": "Custom ECharts",
+    "query_shape": "Any SELECT result set",
+    "sample_sql": "SELECT toDateTime('2024-01-01 00:00:00') AS time, 1 AS value"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "derived_signal_overlay",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "At-a-glance signal health view with recent focus, anomaly windows, and status summary",
+    "drilldown": {
+      "bucket_seconds": 60,
+      "label": "Open signal details",
+      "target": "metrics",
+      "time_axis": "x"
+    },
+    "icon": "bi-soundwave",
+    "id": "derived_signal_overlay",
+    "name": "Derived Signal Overlay",
+    "query_shape": "Columns: time, service, source, signal, attr_fp, value, sample_count, baseline_mean, baseline_lower, baseline_upper, anomaly_state, anomaly_score",
+    "sample_sql": "SELECT\n  time,\n  ServiceName AS service,\n  SignalSource AS source,\n  SignalName AS signal,\n  AttrFingerprint AS attr_fp,\n  value,\n  SampleCount AS sample_count,\n  baseline_mean,\n  baseline_lower,\n  baseline_upper,\n  anomaly_state,\n  anomaly_score\nFROM v_derived_signals_anomaly\nWHERE ServiceName = 'trace-svc-0'\n  AND SignalSource = 'traces'\n  AND SignalName = 'latency_p95_ms'\n  AND time >= now() - INTERVAL 6 HOUR\nORDER BY time"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "dual_axis_anomaly",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Compare metric vs anomaly detection signal on dual axes",
+    "drilldown": {
+      "bucket_seconds": 60,
+      "extra": {
+        "analyze": "1",
+        "stats": "1"
+      },
+      "label": "Open source logs",
+      "target": "logs",
+      "time_axis": "x"
+    },
+    "icon": "bi-graph-up-arrow",
+    "id": "dual_axis_anomaly",
+    "name": "Metric + Anomaly Score",
+    "query_shape": "Columns: time, metric, anomaly_score",
+    "sample_sql": "SELECT\n  time,\n  value AS metric,\n  anomaly_score\nFROM v_otel_metrics_anomaly\nWHERE ServiceName = 'my-service'\n  AND MetricName = 'my.metric'\n  AND time >= now() - INTERVAL 1 HOUR\nORDER BY time"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "gauge_kpi",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Single-value gauge for KPI monitoring (SLA %, uptime %)",
+    "drilldown": {
+      "label": "Open source traces",
+      "target": "traces"
+    },
+    "icon": "bi-speedometer",
+    "id": "gauge_kpi",
+    "name": "KPI Gauge",
+    "query_shape": "Columns: single numeric value",
+    "sample_sql": "SELECT\n  round(100.0 * countIf(StatusCode = 'STATUS_CODE_OK') / count(), 2) AS value\nFROM otel_traces\nWHERE Timestamp > now() - interval 1 hour"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "heatmap",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "2D heatmap for correlating errors across dimensions",
+    "drilldown": {
+      "bucket_seconds": 300,
+      "label": "Open source traces",
+      "service_axis": "x",
+      "target": "traces",
+      "time_axis": "y"
+    },
+    "icon": "bi-fire",
+    "id": "heatmap",
+    "name": "Heatmap",
+    "query_shape": "Columns: x category, y time bucket, numeric value",
+    "sample_sql": "SELECT\n  ServiceName AS x_category,\n  toStartOfFiveMinutes(Timestamp) AS y_category,\n  round(100.0 * countIf(StatusCode = 'STATUS_CODE_ERROR') / count(), 2) AS value\nFROM otel_traces\nGROUP BY ServiceName, y_category\nORDER BY ServiceName, y_category"
+  },
+  {
+    "default_spec": {
+      "data": {
+        "attr_fp": "",
+        "limit": 1000,
+        "metric_name": "",
+        "service": "",
+        "signal_name": "trace_volume",
+        "signal_source": "traces",
+        "source_view": "v_derived_signals_anomaly",
+        "window_hours": 6
+      },
+      "sql": {
+        "mode": "builder",
+        "override_sql": ""
+      },
+      "template_id": "time_series_percentiles",
+      "visual": {
+        "legend_show": true,
+        "role_map": {},
+        "smooth_line": true,
+        "value_color": "",
+        "zoom_end_pct": 100,
+        "zoom_inside": true,
+        "zoom_slider": false,
+        "zoom_start_pct": 0
+      }
+    },
+    "description": "Show metric with percentile bands for anomaly detection",
+    "drilldown": {
+      "bucket_seconds": 60,
+      "label": "Open source traces",
+      "target": "traces",
+      "time_axis": "x"
+    },
+    "icon": "bi-graph-up",
+    "id": "time_series_percentiles",
+    "name": "Time Series with Normal Range",
+    "query_shape": "Columns: time, value, p95, p99",
+    "sample_sql": "SELECT\n  toStartOfMinute(Timestamp) AS time,\n  avg(Duration) AS value,\n  quantile(0.95)(Duration) AS p95,\n  quantile(0.99)(Duration) AS p99\nFROM otel_traces\nGROUP BY time\nORDER BY time"
+  }
+]

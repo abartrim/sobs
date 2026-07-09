@@ -6,6 +6,12 @@ dashboard queries.
 
 Telemetry is **disabled by default**. No external collector is required.
 
+> **Runtime.** Sobs implements this in `go/cmd/sobs/telemetry.go` using only the Go standard
+> library: the `console` exporter writes to stderr and the `otlp` exporter POSTs OTLP/HTTP-JSON
+> to `SOBS_TELEMETRY_OTLP_ENDPOINT`. No OpenTelemetry SDK or optional dependency is ever needed —
+> every `SOBS_TELEMETRY_*` variable below is honored directly, and telemetry is a strict no-op
+> when disabled.
+
 ---
 
 ## Configuration
@@ -37,9 +43,9 @@ Standard OpenTelemetry variable also respected:
 Telemetry is disabled by default. No packages, collectors, or endpoints are needed.
 
 ```bash
-python -m app
+cd go && go build -o sobs ./cmd/sobs && ./sobs
 # or explicitly:
-SOBS_TELEMETRY_ENABLED=false python -m app
+SOBS_TELEMETRY_ENABLED=false ./sobs
 ```
 
 Startup log:
@@ -52,7 +58,7 @@ Sobs telemetry disabled; using no-op telemetry.
 ### OpenTelemetry SDK globally disabled
 
 ```bash
-OTEL_SDK_DISABLED=true SOBS_TELEMETRY_ENABLED=true python -m app
+OTEL_SDK_DISABLED=true SOBS_TELEMETRY_ENABLED=true ./sobs
 ```
 
 Startup log:
@@ -65,21 +71,14 @@ Sobs telemetry disabled; using no-op telemetry.
 ### Console telemetry (local debugging)
 
 Emits traces and metrics to stdout. Useful for local development and debugging
-without an external collector.
-
-**Install optional dependencies first:**
-
-```bash
-pip install -r requirements-telemetry.txt
-```
-
-**Run:**
+without an external collector. No extra install step — the exporter is part of
+the Go binary.
 
 ```bash
 SOBS_TELEMETRY_ENABLED=true \
 SOBS_TELEMETRY_EXPORTER=console \
 SOBS_TELEMETRY_CONSOLE_EXPORT=true \
-python -m app
+./sobs
 ```
 
 Startup log:
@@ -91,44 +90,20 @@ Sobs telemetry enabled with console exporter.
 
 ### OTLP telemetry (Grafana Tempo, Jaeger, etc.)
 
-Send traces and metrics to an OpenTelemetry collector via OTLP.
-
-**Install optional dependencies first:**
-
-```bash
-pip install -r requirements-telemetry.txt
-```
-
-**Run:**
+Send traces and metrics to an OpenTelemetry collector via OTLP. No extra
+install step — the exporter is part of the Go binary.
 
 ```bash
 SOBS_TELEMETRY_ENABLED=true \
 SOBS_TELEMETRY_EXPORTER=otlp \
 SOBS_TELEMETRY_OTLP_ENDPOINT=http://localhost:4317 \
-python -m app
+./sobs
 ```
 
 Startup log:
 ```
 Sobs telemetry enabled with OTLP exporter (endpoint=http://localhost:4317).
 ```
-
----
-
-## Optional Dependencies
-
-Telemetry packages are **not** required for core Sobs operation. Install them
-only when you want to enable telemetry:
-
-```bash
-pip install -r requirements-telemetry.txt
-```
-
-This installs:
-- `opentelemetry-api`
-- `opentelemetry-sdk`
-- `opentelemetry-exporter-otlp`
-- `opentelemetry-instrumentation-asgi`
 
 ---
 
@@ -140,8 +115,8 @@ When telemetry is enabled, the following spans are emitted:
 |---|---|---|
 | `sobs.ingest.request` | Ingest route handlers (`/v1/logs`, `/v1/traces`, `/v1/metrics`) | `event.type`, `route` |
 | `sobs.ingest.parse` | OTLP protobuf parsing | `event.type`, `parser` |
-| `sobs.storage.write` | `_insert_rows_json_each_row` | `storage.engine=chdb`, `table`, `row.count` |
-| `sobs.rules.evaluate` | `_apply_tag_rules` | `rule.count`, `event.count` |
+| `sobs.storage.write` | `InsertJSONEachRow` | `storage.engine=chdb`, `table`, `row.count` |
+| `sobs.rules.evaluate` | `applyTagRules` | `rule.count`, `event.count` |
 | `sobs.dashboard.query` | Dashboard view routes (`/logs`, `/errors`, `/traces`, `/metrics`) | `dashboard.name`, `route` |
 
 Metrics recorded:
@@ -171,24 +146,12 @@ Metrics recorded:
 
 ## Adding Spans to New Code
 
-Use the `span` context manager from the `telemetry` module:
+Use `(*telemetry).span`, which returns a closure to `defer`:
 
-```python
-import telemetry as _telemetry
-
-with _telemetry.span("sobs.ingest.normalize", **{"event.type": "rum", "event.count": len(events)}):
-    normalize_events(events)
+```go
+defer s.tel.span("sobs.ingest.normalize", map[string]any{"event.type": "rum", "event.count": len(events)})()
+normalizeEvents(events)
 ```
 
-Use the `traced_view` decorator for async route handlers:
-
-```python
-@app.route("/my-page")
-@require_basic_auth
-@_telemetry.traced_view("sobs.dashboard.query", **{"dashboard.name": "my-page", "route": "/my-page"})
-async def view_my_page():
-    ...
-```
-
-Both helpers are **no-ops** when telemetry is disabled. No imports or
+This is a **no-op** when telemetry is disabled or `s.tel` is nil. No
 conditional guards are needed in calling code.

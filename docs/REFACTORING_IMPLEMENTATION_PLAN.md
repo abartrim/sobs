@@ -1,5 +1,12 @@
 # Code Refactoring Implementation Plan: Monolithic to Modular
 
+> **⚠️ OBSOLETE — superseded by the Go port. The `[ ]` items below are NOT pending work.**
+> This was a *pre-migration* plan to refactor the Python `app.py` monolith into modules. The project
+> instead chose a hard cutover to a Go port (`go/`); `app.py` served as the frozen, read-only
+> byte-parity oracle throughout that migration and has since been deleted along with the rest of
+> the Python app and test suite. The 68 unchecked tasks here were abandoned before the cutover and
+> are NOT part of any outstanding work. Kept for history.
+
 **Date:** April 4, 2026  
 **Owner:** Engineering Team  
 **Status:** Pre-Implementation Planning  

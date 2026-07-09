@@ -2,10 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # go-main is the migration integration branch ("main" until cutover). Build/test/lint run on
+    # it, but the publish/release jobs (docker, register-sobs-release, cleanup-ghcr) stay gated
+    # to main/master/tags via their own `if:` — so go-main never publishes artifacts.
+    branches: [main, master, go-main]
     tags: ['v*']
   pull_request:
-    branches: [main, master]
+    branches: [main, master, go-main]
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +20,24 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # The only remaining pip consumer is the lint job (black/isort/flake8/djlint — small pure-Python
+  # packages over the restricted-egress runners' in-cluster devpi proxy). More retries + a longer
+  # per-read timeout let pip self-recover from any transient proxy hiccup; the in-cluster /cache/pip
+  # then caches the wheels so subsequent runs skip the download entirely.
+  PIP_RETRIES: "15"
+  PIP_DEFAULT_TIMEOUT: "120"
+  # actions/setup-python's own `pip install --upgrade pip` (and the lint job's explicit pip install)
+  # resolves through the in-cluster devpi proxy over plain HTTP (no TLS cert for a ClusterIP-only
+  # hostname) — pip treats a non-HTTPS index as untrusted by default and silently drops it ("not a
+  # trusted or secure host ... is being ignored"), which then reads as "no matching distribution"
+  # for every package including pip itself. Explicitly trusting the hostname (not disabling
+  # verification generally) restores use of the cache without any external egress.
+  PIP_TRUSTED_HOST: devpi.ci-cache.svc.cluster.local
+  # Go modules resolve through the in-cluster Athens proxy (ci-cache, ClusterIP/IPv4) — no per-runner
+  # internet egress and a shared persistent module cache. GOSUMDB=off: the committed go.sum verifies
+  # integrity locally; sum.golang.org isn't reachable from the IPv4-only, netpol'd runners.
+  GOPROXY: http://athens.ci-cache.svc.cluster.local:5000
+  GOSUMDB: "off"
 
 jobs:
   dependency-audit:
@@ -29,16 +50,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Audit Python dependencies
-        run: pip-audit -r requirements.txt --strict
-
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -49,6 +60,88 @@ jobs:
 
       - name: Audit npm dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  go-build-test:
+    name: Build & Test
+    runs-on: sobs-runners
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["registry-mirror.ci-cache.svc.cluster.local:5000"]
+            [registry."registry-mirror.ci-cache.svc.cluster.local:5000"]
+              http = true
+            [registry."registry-cache.ci-cache.svc.cluster.local:5000"]
+              http = true
+
+      - name: Build + gofmt/vet/build/test the Go server (Dockerfile.ci)
+        # Dockerfile.ci runs gofmt/vet/build/test as build steps on Ubuntu 26.04. The apt packages,
+        # Go toolchain, libchdb and module graph are cached layers in the in-cluster registry
+        # buildcache, so after the first run ONLY a source change recompiles. Running the tests
+        # in-container (a fresh process tree) also avoids the chdb-under-runner-agent SIGSEGV. The
+        # build resolves Go modules via the in-cluster Athens proxy (network=host reaches it).
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.ci
+          push: false
+          cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache
+          cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
+
+  docker-go-smoke:
+    name: Image Build & Smoke
+    runs-on: sobs-runners
+    # Builds its own image from source — independent of go-build-test, so run in parallel.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build the stripped-down Go image
+        # --network=host: the dind sidecar shares the runner pod's network namespace, so the build can
+        # reach the in-cluster Athens proxy (ClusterIP:5000, permitted by the egress netpol) for
+        # `go mod download`. GOPROXY/GOSUMDB come from the workflow env.
+        run: |
+          docker build --network=host \
+            --build-arg GOPROXY="${GOPROXY}" \
+            --build-arg GOSUMDB="${GOSUMDB}" \
+            -f Dockerfile.go -t sobs:ci .
+
+      - name: Start the container (empty /data — must self-seed its schema)
+        run: docker run -d --name sobs -p 4317:4317 sobs:ci
+
+      - name: Smoke-test the running image
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4317/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          assert_200() {
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$1")"
+            echo "  $1 -> $code"
+            test "$code" = "200"
+          }
+          # /health/db runs SELECT 1 -> proves the binary runs, libchdb dlopens, chdb opens.
+          assert_200 http://127.0.0.1:4317/health
+          assert_200 http://127.0.0.1:4317/health/db
+          # /api/reports queries a real table -> proves the schema self-initialized (ensureSchema).
+          body="$(curl -fsS http://127.0.0.1:4317/api/reports)"
+          echo "  /api/reports -> $body"
+          test "$body" = "[]"
+          # / renders a Jinja page -> proves templates/ + static/ are bundled and the engine works.
+          assert_200 http://127.0.0.1:4317/
+
+      - name: Container logs
+        if: always()
+        run: docker logs sobs || true
 
   rum-build:
     name: RUM JS Build & Type Check
@@ -98,106 +191,37 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install linting dependencies
-        run: pip install black isort flake8 mypy djlint flask
+        run: pip install black isort flake8 djlint
 
       - name: Run black
-        run: black --check .
+        run: black --check scripts/ examples/
 
       - name: Run isort
-        run: isort --check-only .
+        run: isort --check-only scripts/ examples/
 
       - name: Run flake8
-        run: flake8 .
-
-      - name: Run mypy
-        run: mypy app.py
+        run: flake8 scripts/ examples/
 
       - name: Run djlint
         run: python3 scripts/run_djlint.py --check --lint templates
 
-  test:
-    name: Tests
-    runs-on: sobs-runners
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          fetch-depth: 0
+          node-version: "22"
+      - name: Install ESLint
+        run: npm ci
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-integration.txt
-
-      - name: Run unit tests with coverage
-        run: |
-          echo "SOBS/chDB env snapshot"
-          env | sort | grep -E '^(SOBS_|CHDB_)' || true
-          pytest tests --ignore=tests/test_integration.py -x --maxfail=1 -vv \
-            --cov=app --cov=masking --cov=mcp \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml
-
-      - name: Diff coverage gate
-        run: diff-cover coverage.xml --compare-branch=origin/main --fail-under=90
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: coverage.xml
-          if-no-files-found: warn
-
-  integration:
-    name: Integration Tests
-    runs-on: sobs-runners
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-integration.txt
-
-      - name: Install Playwright browsers
-        run: playwright install --with-deps chromium
-
-      - name: Run integration tests
-        env:
-          SOBS_UIQA_SEED_TOTAL: "64"
-          SOBS_UIQA_SEED_WORKERS: "8"
-          SOBS_SCREENSHOT_SEED_TOTAL: "240"
-          SOBS_SCREENSHOT_SEED_WORKERS: "24"
-          # Disable the chDB server memory cap in CI. The limit is a production
-          # safeguard for constrained containers; the CI runner has ample RAM and
-          # enforcing it only causes false failures as baseline RSS varies.
-          SOBS_CHDB_MAX_SERVER_MB: "0"
-        run: pytest tests/test_integration.py -v
-
-      - name: Upload screenshots
-        # Only on failure — screenshots are a debugging aid for failed integration
-        # runs; uploading 2.8MB every green run filled the account artifact quota.
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: integration-screenshots
-          path: tests/screenshots/
-          if-no-files-found: warn
-          retention-days: 5
+      - name: Run ESLint (examples/)
+        run: npm run lint:examples
 
   docker:
     name: Build & Push Docker Image
     runs-on: sobs-runners
-    needs: [dependency-audit, rum-build, lint, test, integration]
+    # The published image is the Go server (the cutover artifact). Gate on the Go pipeline —
+    # go-build-test includes the golden-corpus replay (former parity job's role) — so a release
+    # only ships a build that passed both unit tests and the byte-parity replay.
+    needs: [go-build-test, docker-go-smoke]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
@@ -241,15 +265,26 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # flavor.latest defaults to "auto", under which the type=ref,event=tag rule
+          # hardcodes latest=true for ANY tag push (metadata-action's procRefTag: `flavor.latest
+          # == 'auto' ? true : ...`) — this wins over the explicit enable= gate below regardless
+          # of its value, because whichever tag rule runs first (by priority: ref > raw > sha)
+          # sets the shared "should this build also get retagged latest" flag, and the ref rule
+          # always claims it. Confirmed empirically: tagging v0.2.0-beta.3 off go-main (not
+          # main) still produced a `latest` tag. Disable that blanket auto-latest and drive
+          # `latest` from the explicit raw rule alone.
+          flavor: |
+            latest=false
           tags: |
             type=sha,prefix=,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=ref,event=tag
 
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: Dockerfile.go
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -288,16 +323,6 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Set up QEMU for cross-platform image inspection
-        uses: docker/setup-qemu-action@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Resolve release version
         id: release_version
         run: |
@@ -320,29 +345,29 @@ jobs:
           name: rum-min-js-sourcemap
           path: static
 
-      - name: Extract resolved dependency snapshots from published image (per arch)
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Extract resolved dependency snapshot (Go modules)
         run: |
           set -euo pipefail
           mkdir -p sobs-release
-          image_ref="ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}"
-          for arch in amd64 arm64; do
-            lock_file="sobs-release/pip-freeze-linux-${arch}.txt"
-            docker run --rm --platform "linux/${arch}" "${image_ref}" \
-              sh -lc 'python -m pip freeze --all' > "${lock_file}"
-            if [[ ! -s "${lock_file}" ]]; then
-              echo "Dependency snapshot extraction failed for ${arch}" >&2
-              exit 1
-            fi
-          done
+          # The published image is the Go server; record its module graph (platform-independent)
+          # in place of the old per-arch pip freeze.
+          (cd go && go list -m all) > sobs-release/go-modules.txt
+          test -s sobs-release/go-modules.txt
 
-      - name: Upload per-arch dependency snapshots
+      - name: Upload dependency snapshot
         uses: actions/upload-artifact@v7
         with:
           name: sobs-release-dependency-snapshots
-          path: sobs-release/pip-freeze-linux-*.txt
+          path: sobs-release/go-modules.txt
           if-no-files-found: error
 
-      - name: Register release and artifact metadata (linux/amd64)
+      - name: Register release, dependency, and artifact metadata
         if: steps.sobs_gate.outputs.enabled == 'true'
         env:
           SOBS_APP_NAME: sobs
@@ -356,46 +381,22 @@ jobs:
           SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
         run: |
           set -euo pipefail
-          dep_file="sobs-release/pip-freeze-linux-amd64.txt"
+          # Go modules are platform-independent, so a single snapshot replaces the old per-arch
+          # Python freezes; the image itself is multi-arch.
+          dep_file="sobs-release/go-modules.txt"
           rum_size=$(wc -c < static/rum.min.js.map)
           dep_size=$(wc -c < "${dep_file}")
           rum_sha=$(shasum -a 256 static/rum.min.js.map | awk '{print $1}')
           dep_sha=$(shasum -a 256 "${dep_file}" | awk '{print $1}')
           python scripts/register_release_artifacts.py \
             --requirements-file "${dep_file}" \
-            --dependencies-name "pip-freeze-linux-amd64" \
-            --dependencies-storage-ref "ci://artifacts/pip-freeze-linux-amd64.txt" \
+            --dependencies-name "go-modules" \
+            --dependencies-storage-ref "ci://artifacts/go-modules.txt" \
             --dependencies-checksum-sha256 "${dep_sha}" \
             --dependencies-size "${dep_size}" \
             --dependencies-platform "linux" \
-            --dependencies-architecture "amd64" \
+            --dependencies-architecture "multi" \
             --artifacts-json "[{\"artifactType\":\"js_sourcemap\",\"name\":\"rum.min.js.map\",\"contentType\":\"application/json\",\"size\":${rum_size},\"storageRef\":\"ci://artifacts/rum.min.js.map\",\"checksumSha256\":\"${rum_sha}\",\"platform\":\"linux\",\"architecture\":\"multi\"}]"
-
-      - name: Register dependency metadata (linux/arm64)
-        if: steps.sobs_gate.outputs.enabled == 'true'
-        env:
-          SOBS_APP_NAME: sobs
-          SOBS_APP_SLUG: sobs
-          SOBS_APP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-          SOBS_DEFAULT_ENVIRONMENT: production
-          SOBS_RELEASE_VERSION: ${{ steps.release_version.outputs.value }}
-          SOBS_RELEASE_COMMIT_SHA: ${{ github.sha }}
-          SOBS_RELEASE_BUILD_ID: ${{ github.run_id }}
-          SOBS_RELEASE_ENVIRONMENT: production
-          SOBS_RELEASE_ID: ${{ steps.release_id.outputs.value }}
-        run: |
-          set -euo pipefail
-          dep_file="sobs-release/pip-freeze-linux-arm64.txt"
-          dep_size=$(wc -c < "${dep_file}")
-          dep_sha=$(shasum -a 256 "${dep_file}" | awk '{print $1}')
-          python scripts/register_release_artifacts.py \
-            --requirements-file "${dep_file}" \
-            --dependencies-name "pip-freeze-linux-arm64" \
-            --dependencies-storage-ref "ci://artifacts/pip-freeze-linux-arm64.txt" \
-            --dependencies-checksum-sha256 "${dep_sha}" \
-            --dependencies-size "${dep_size}" \
-            --dependencies-platform "linux" \
-            --dependencies-architecture "arm64"
 
   cleanup-ghcr:
     name: Cleanup Stale GHCR Versions

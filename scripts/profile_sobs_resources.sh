@@ -8,13 +8,15 @@ set -euo pipefail
 #   ./scripts/profile_sobs_resources.sh
 #   ./scripts/profile_sobs_resources.sh --duration 300 --interval 1 --wait 120
 #   ./scripts/profile_sobs_resources.sh --pid 12345
-#   ./scripts/profile_sobs_resources.sh --regex "python.*app.py"
+#   ./scripts/profile_sobs_resources.sh --regex "sobs"
 
 DURATION_SEC=300
 INTERVAL_SEC=1
 WAIT_SEC=120
 PID=""
-PROCESS_REGEX="(^|[[:space:]])(([^[:space:]]*/)?app\.py)([[:space:]]|$)"
+# Match the Go server binary (the published runtime, e.g. ./sobs, /app/sobs, go/tmp/sobs).
+# Override with --regex.
+PROCESS_REGEX="(^|[[:space:]])(([^[:space:]]*/)?sobs)([[:space:]]|$)"
 OUT_DIR="data/profiles"
 
 while [[ $# -gt 0 ]]; do
@@ -61,7 +63,7 @@ find_pid() {
       $1=""
       sub(/^ +/, "", $0)
       cmd=$0
-      if (cmd ~ /rum_replay_test_app\.py|tests\/test_app\.py/) {
+      if (cmd ~ /rum_replay_test_app\.py/) {
         next
       }
       if (cmd ~ re) {

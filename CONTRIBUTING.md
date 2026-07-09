@@ -10,38 +10,56 @@
 
 ## Local Setup
 
-Use a virtual environment and install development dependencies:
+SOBS ships as a **Go** server. Development happens in `go/` plus the shared `templates/` and
+`static/`; `scripts/` holds a handful of stdlib-only Python ops/release helpers.
+
+### Go server (primary)
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r requirements-integration.txt
-pip install black isort flake8 mypy djlint
+cd go
+go build ./...     # build everything
+go vet ./...       # vet
+gofmt -l .         # formatting gate (must print nothing)
+go test ./...      # unit tests (chdb-backed tests need CHDB_LIB_PATH -> pinned libchdb, go/CHDB_PIN.md)
+
+# Run locally on :44317
+go build -o sobs ./cmd/sobs && SOBS_DATA_DIR=../data ./sobs
 ```
 
-## Coverage
-
-`requirements-integration.txt` includes `pytest-cov` and `diff-cover`.
-
-Run unit tests with a terminal coverage summary and an XML report:
+Live-reload dev loop — rebuilds and restarts the Go server on every save, with an example-traffic
+sidecar so the UI populates:
 
 ```bash
-pytest tests --ignore=tests/test_integration.py \
-    --cov=app --cov=masking --cov=mcp \
-    --cov-report=term-missing \
-    --cov-report=xml:coverage.xml
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-To check coverage only on lines changed by the current branch (useful before
-opening a PR):
+### Golden-corpus regression suite
+
+The Go-native successor to the (now-retired) Python-parity byte-diff: boots the compiled `sobs`
+binary against a frozen corpus of golden HTTP responses and byte-diffs every route.
 
 ```bash
-diff-cover coverage.xml --compare-branch=origin/main
+cd go
+CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
 ```
 
-`diff-cover` exits non-zero when any changed line is uncovered, so it can gate
-a PR locally in the same way CI does.  Coverage configuration (omit patterns,
-exclusion rules) lives in the `[tool.coverage.*]` sections of `pyproject.toml`.
+See [go/README.md](go/README.md) and [go/CHDB_PIN.md](go/CHDB_PIN.md) for the pinned native
+chdb library this needs.
+
+### Coverage floor
+
+CI enforces a minimum combined statement-coverage floor (unit tests + golden-corpus replay,
+generated OTLP protobuf excluded) — see `go/COVERAGE_FLOOR` and `go/coverage_gate.sh`. A PR that
+drops coverage below the floor fails the build; raise `go/COVERAGE_FLOOR` in the same PR that
+adds meaningful new coverage to lock in the gain. To reproduce locally:
+
+```bash
+cd go
+export GOCOVERDIR=$(mktemp -d)
+go test -cover -covermode=atomic ./... -args -test.gocoverdir="$GOCOVERDIR"
+SOBS_GOCOVER=1 CHDB_LIB_PATH=/path/to/libchdb.so go test -tags chdb -run TestGoldenCorpus ./goldenreplay/...
+./coverage_gate.sh "$GOCOVERDIR"
+```
 
 ## Pre-Commit Hook
 
@@ -74,41 +92,26 @@ If formatters update files, the hook re-stages those files automatically.
 Run these before opening or updating a PR:
 
 ```bash
-isort *.py tests/ scripts
-black *.py tests/ scripts
-flake8 *.py tests/ scripts
-mypy app.py tests scripts
+isort scripts examples
+black scripts examples
+flake8 scripts examples
 python3 scripts/run_djlint.py --reformat --lint templates
 python3 scripts/run_djlint.py --check --lint templates
-pytest tests/
+npm run lint:examples   # ESLint over examples/nodejs and examples/rum
 ```
 
 On a clean tree, `--check` applies only to templates changed on the current branch. To format a specific file directly, pass the file path instead of the `templates` directory.
 
+`examples/` holds real integration snippets (Node.js, browser RUM helpers, Python), not throwaway
+samples — they're linted the same as everything else. `eslint.config.js` scopes ESLint to
+`examples/nodejs` and `examples/rum` only; the shipped RUM bundle source is type-checked
+separately via `npm run typecheck:rum`.
+
 ## Regenerating Docs Screenshots
 
-Use the integration screenshot suite to refresh UI screenshots used in docs/help:
-
-```bash
-python -m pytest tests/test_integration.py -q -k "TestScreenshots"
-```
-
-Output files are written to `tests/screenshots/`.
-
-The screenshot harness disables the first-run tour (`SOBS_ENABLE_FIRST_RUN_TOUR=0`) and also force-dismisses any visible tour modal before capture so docs screenshots are not obscured.
-
-To sync images used by in-app help pages:
-
-```bash
-cp tests/screenshots/dashboard.png static/help/dashboard.png
-cp tests/screenshots/ai.png static/help/ai.png
-cp tests/screenshots/logs.png static/help/logs.png
-cp tests/screenshots/traces.png static/help/traces.png
-cp tests/screenshots/traces_drilldown.png static/help/traces_drilldown.png
-cp tests/screenshots/query.png static/help/query.png
-cp tests/screenshots/summary.png static/help/summary.png
-cp tests/screenshots/summary_ai_assistant.png static/help/summary_ai_assistant.png
-```
+There is currently no automated screenshot-capture harness (it lived in the now-retired Python
+integration test suite). Help-page screenshots under `static/help/` need to be captured manually
+against a running instance until a Go-native replacement exists.
 
 ## Releasing
 
@@ -131,7 +134,11 @@ Releases are driven by a Git tag pushed to GitHub. CI picks up any tag matching 
    gh release create v1.2.3 --title "v1.2.3" --notes "Release notes here"
    ```
 
-4. **CI publishes the image automatically.** The `docker` job in `.github/workflows/ci.yml` detects `refs/tags/v*`, passes `SOBS_BUILD_VERSION=v1.2.3` as a Docker build arg, and pushes to GHCR with both the version tag and a new `latest`:
+4. **CI publishes the Go image automatically.** The `docker` job in `.github/workflows/ci.yml`
+   detects `refs/tags/v*`, builds `Dockerfile.go` (gated on the `go-build-test` + `docker-go-smoke`
+   jobs, so a release only ships a build that passed unit tests and the golden-corpus replay),
+   passes `SOBS_BUILD_VERSION=v1.2.3` as a build arg, and pushes the multi-arch image to GHCR with
+   both the version tag and a new `latest`:
 
    - `ghcr.io/abartrim/sobs:v1.2.3`
    - `ghcr.io/abartrim/sobs:latest`

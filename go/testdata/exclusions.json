@@ -1,0 +1,12 @@
+{
+ "exclusions": [
+  {
+   "id": "get__logs",
+   "reason": "ORDER BY Timestamp tie order is engine/platform-defined; all seeded rows share one timestamp"
+  },
+  {
+   "id": "get__rum__rumvitals",
+   "reason": "multiple unfreezable chDB-now() renders (errData WITH-FILL bucket-shift + a residual length-varying value) drift across the capture\u2192replay gap; masking was whack-a-mole"
+  }
+ ]
+}

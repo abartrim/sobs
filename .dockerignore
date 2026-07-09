@@ -7,3 +7,11 @@ venv/
 *.egg-info/
 dist/
 build/
+
+# Go image build context: exclude the huge gitignored native lib (the Go Dockerfile downloads
+# its own pinned libchdb and needs only go/ + templates/ + static/).
+.libchdb/
+.git/
+.claude/
+node_modules/
+*.tar.gz

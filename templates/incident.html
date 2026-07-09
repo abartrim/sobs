@@ -587,17 +587,17 @@
       {% endif %}
       lines.push('## Links');
       {% if trace_id %}
-      lines.push('- [Trace Detail]({{ url_for("view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Trace Detail]({{ url_for("view_traces", trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) | replace("'", "%27") | safe }})');
       {% endif %}
       {% if (primary_error and primary_error.trace_id) or trace_id %}
-      lines.push('- [Logs]({{ url_for("view_logs", trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Logs]({{ url_for("view_logs", trace_id=(primary_error.trace_id if primary_error and primary_error.trace_id else trace_id), from_ts=from_ts, to_ts=to_ts) | replace("'", "%27") | safe }})');
       {% elif service %}
-      lines.push('- [Logs]({{ url_for("view_logs", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Logs]({{ url_for("view_logs", service=service, from_ts=from_ts, to_ts=to_ts) | replace("'", "%27") | safe }})');
       {% endif %}
       {% if service %}
-      lines.push('- [Errors]({{ url_for("view_errors", service=service, from_ts=from_ts, to_ts=to_ts) | safe }})');
+      lines.push('- [Errors]({{ url_for("view_errors", service=service, from_ts=from_ts, to_ts=to_ts) | replace("'", "%27") | safe }})');
       {% endif %}
-      lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | safe }})');
+      lines.push('- [RUM]({{ url_for("view_rum", from_ts=from_ts, to_ts=to_ts, q=(trace_id or "")) | replace("'", "%27") | safe }})');
 
       var md = lines.join('\n');
       navigator.clipboard.writeText(md).then(function () {

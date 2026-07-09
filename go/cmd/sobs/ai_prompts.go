@@ -1,0 +1,295 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/sobs/sobs/internal/jsonenc"
+)
+
+// LLM prompt templates ported from app.py. These go in the LLM request body. NOTE: this must be
+// byte-identical to app.py — the deterministic OpenAI-compatible mock can key a canned response on
+// the request body (and the real upstream receives the same bytes), so prompt text IS parity-
+// relevant. Where the Python source uses markdown backticks, a Go raw-string literal cannot contain
+// one, so they are stored as a private-use sentinel (U+F8FF) and restored to backticks at init (see
+// querySQLSystemPrompt). Any prompt below still using single quotes for backtick'd identifiers is a
+// known remaining divergence to convert the same way.
+
+// querySQLSystemPrompt mirrors app.py _QUERY_SQL_SYSTEM_PROMPT ({schema} is substituted at call
+// time with getSchemaContext()).
+// querySQLSystemPrompt: the Python source uses markdown backticks around identifiers; a Go
+// raw-string literal cannot contain a backtick, so they are stored as a private-use sentinel
+// (U+F8FF) and restored to backticks at init — making the prompt byte-identical to app.py's
+// _QUERY_SQL_SYSTEM_PROMPT (required now the parity mock keys on the LLM request body).
+var querySQLSystemPrompt = strings.ReplaceAll(`You are a ClickHouse SQL expert. Your job is to write correct, read-only ClickHouse SELECT queries based on natural-language questions.
+
+Rules:
+- Output ONLY raw SQL. No markdown, no backticks, no explanation.
+- You MUST return a non-empty SQL query as your final answer.
+- Use only SELECT statements (or WITH … SELECT). Never use INSERT, UPDATE,
+    DELETE, DROP, CREATE, or any DDL.
+- Use ONLY tables/views and columns that are present in the provided schema
+    context and allowed-table list.
+- Do NOT invent, guess, hallucinate, or rename tables, views, or fields.
+- If the user's wording does not exactly match the schema, map it to the
+    closest real table/column names from the provided schema.
+- Terminology disambiguation:
+  - sobs_anomaly_rules = metric/anomaly rule definitions (configuration rows).
+    - v_otel_metrics_1m = finalized 1-minute metric rollups for trend/chart queries.
+    - otel_metrics_1m_agg = aggregate-state backing table for those 1-minute metric rollups.
+        If you query it directly, you MUST use avgMerge(Value) and sumMerge(SampleCount) and
+        GROUP BY ServiceName, MetricName, AttrFingerprint, MetricKind, MinuteBucket (or a subset
+        that still includes every selected non-aggregated column).
+  - v_derived_signals_1m = derived signal time series before anomaly scoring.
+  - v_derived_signals_anomaly and v_otel_metrics_anomaly = scored outputs with
+      anomaly_state and anomaly_score.
+  - sobs_raw_windows = signal windows that preserve raw metrics data around active
+      signals; this is window metadata, not rule definitions.
+- If asked about rule definitions, thresholds, comparators, or rule coverage,
+    query sobs_anomaly_rules first.
+- If asked about signal trends/values over time, prefer v_derived_signals_1m
+    unless anomaly state/score is explicitly requested.
+- Prefer v_otel_metrics_1m over otel_metrics_1m_agg for normal charts unless the user
+    explicitly wants aggregate-state internals or a query that benefits from direct avgMerge access.
+- For signal, anomaly, alert, or incident-window questions, prefer
+    sobs_raw_windows for window metadata and
+    v_otel_metrics_signal_context for metrics that occurred inside those windows.
+- For deployment/release correlation requests, treat deployment windows as a subset
+    of signal windows in sobs_raw_windows (typically matched via SignalType/SignalRef
+    text filters when explicit deployment tables are absent).
+- For complex analytical, correlation, or chart-oriented questions with
+    multiple metrics or transforms, prefer 2-4 compact, clearly named CTEs
+    instead of one large SELECT.
+- For simple questions, a single SELECT is preferred over unnecessary CTEs.
+- When using multiple CTEs, keep each CTE focused on one step such as
+    filtering, aggregation, enrichment, or final shaping.
+- If you use CTEs (WITH ...), you MUST include a final SELECT statement after the CTE block.
+- Ensure all parentheses and quotes are balanced before returning the SQL.
+- The database name is "default". Always qualify table names as default.<table> or omit the database when unambiguous.
+- Use ClickHouse-compatible syntax (e.g. toDate(), now(), formatDateTime(), arrayJoin(), etc.).
+- ClickHouse JOIN safety: keep JOIN ON predicates equality-based whenever possible.
+- For time-window overlap/non-equality correlation (e.g. t between WindowStart and WindowEnd),
+    avoid non-equi predicates directly in JOIN ON. Prefer CROSS JOIN (or pre-aggregated equality keys)
+    and apply the overlap predicates in WHERE.
+- When the question asks for a chart or visualisation, still return only the SQL that produces the data.
+- Limit results to at most 1000 rows unless the user explicitly asks for more (add LIMIT 1000 unless already present).
+
+CTE pattern example (structure only):
+WITH filtered AS (
+    SELECT TimestampTime, ServiceName
+    FROM default.otel_logs
+    WHERE TimestampTime >= now() - INTERVAL 24 HOUR
+), counts AS (
+    SELECT ServiceName, count() AS error_count
+    FROM filtered
+    GROUP BY ServiceName
+)
+SELECT ServiceName, error_count
+FROM counts
+ORDER BY error_count DESC
+LIMIT 20
+
+Schema context:
+{schema}
+`, "\uF8FF", "`")
+
+// chartRefinementPromptTemplate mirrors app.py _build_chart_refinement_prompt's static base;
+// {catalog} is filled with the dynamic chart-types section at call time.
+const chartRefinementPromptTemplate = `You are an expert in Apache ECharts data visualization. The user will ask you to modify or refine an existing chart spec based on the available data.
+
+Your primary task: Fulfill the user's request, even if it requires changing the chart type.
+{catalog}
+Data-Aware Chart Transformation:
+1. If the user requests a chart type different from current, intelligently restructure the data:
+   - For pie/gauge: Select top values or aggregate by category
+   - For scatter: Use first two numeric columns as x,y
+   - For heatmap: Pivot or aggregate data into matrix form
+   - For radar: Use all numeric columns as dimensions
+   - For hierarchical (tree, treemap, sunburst): Organize data with parent-child structure
+2. Always maintain data accuracy during transformation
+3. The data object contains 'columns' (field names) and 'rows' (actual data)
+
+Guidelines:
+- Update chart.type to the requested chart type
+- Restructure series.data if needed for the new chart type
+- Change xAxis, yAxis, or other coordinate systems based on new chart type
+- Update colors, gridlines, legends, tooltips, animations per user request
+- Use Bootstrap 5 colors (primary: #0d6efd, success: #198754, danger: #dc3545, etc.) unless specified
+- Set backgroundColor: 'transparent'
+- Return ONLY valid JSON—no markdown, no explanations
+- The result must be parseable by JSON.parse()
+`
+
+// loadChartTypesCatalog reads the committed ECharts chart-types catalog (same file
+// handleApiChartTypes serves).
+func (s *server) loadChartTypesCatalog() *jsonenc.Object {
+	raw, err := os.ReadFile(filepath.Join(s.cfg.StaticDir, "echarts-chart-types.json"))
+	if err != nil {
+		return nil
+	}
+	parsed, err := parseJSONValue(raw)
+	if err != nil {
+		return nil
+	}
+	o, _ := parsed.(*jsonenc.Object)
+	return o
+}
+
+// buildChartRefinementPrompt mirrors app.py _build_chart_refinement_prompt: the base prompt with a
+// dynamic per-chart-type catalog section spliced in.
+func (s *server) buildChartRefinementPrompt() string {
+	safeStr := func(o *jsonenc.Object, k string) string {
+		if o == nil {
+			return ""
+		}
+		return objStrOr(o, k)
+	}
+	section := ""
+	if cat := s.loadChartTypesCatalog(); cat != nil {
+		if ctv, ok := cat.Get("chartTypes"); ok {
+			if ct, _ := ctv.(*jsonenc.Object); ct != nil {
+				var b strings.Builder
+				b.WriteString("\nAvailable Chart Types and Data Requirements:\n")
+				for _, key := range ct.Keys() {
+					iv, _ := ct.Get(key)
+					info, _ := iv.(*jsonenc.Object)
+					if info == nil {
+						continue
+					}
+					name := objStrOr(info, "name")
+					if name == "" {
+						name = key
+					}
+					var ds *jsonenc.Object
+					if dv, _ := info.Get("dataStructure"); dv != nil {
+						ds, _ = dv.(*jsonenc.Object)
+					}
+					b.WriteString("\n**" + name + "** (" + key + ")\n")
+					b.WriteString("  Description: " + objStrOr(info, "description") + "\n")
+					b.WriteString("  Data Structure: " + safeStr(ds, "type") + "\n")
+					b.WriteString("  Example: " + safeStr(ds, "example") + "\n")
+					b.WriteString("  Best For: " + objStrOr(info, "goodFor") + "\n")
+				}
+				section = b.String()
+			}
+		}
+	}
+	return strings.Replace(chartRefinementPromptTemplate, "{catalog}", section, 1)
+}
+
+// agentRootCauseSystemPrompt mirrors app.py _run_agent_flow's default analysis system prompt
+// (used when ai.system_prompt is unset).
+const agentRootCauseSystemPrompt = `You are an expert SRE and observability engineer. Analyse the provided telemetry context and provide a concise root cause analysis and a specific, actionable suggested fix. Before concluding, assess whether this event is NOISE (transient, self-resolving, e.g. a single reconnection attempt that succeeded, a brief timeout that did not recur) or IMPACT (persistent fault, exhausted retries, service degradation, user-facing error). If the event frequency is low (≤2 occurrences) and there are no active anomalies or related errors, note that this may be noise and recommend monitoring rather than immediate escalation. Format your response as:
+NOISE_OR_IMPACT: <NOISE|IMPACT|UNCERTAIN>
+ROOT CAUSE: <text>
+SUGGESTED FIX: <text>`
+
+// namedQueriesSystemPrompt mirrors app.py _vanna_generate_named_queries' system prompt.
+const namedQueriesSystemPrompt = `You are a ClickHouse SQL planner for chart datasets. Return ONLY valid JSON with the shape: {"datasets":[{"name":"...","sql":"SELECT ...","purpose":"..."}]}. Rules: use only read-only SELECT/WITH queries; keep at most 3 datasets; names should be short snake_case identifiers; no markdown.`
+
+// chartSystemPrompt mirrors app.py _QUERY_CHART_SYSTEM_PROMPT. The Python source uses markdown
+// backticks; a Go raw-string literal cannot contain one, so they are stored as a private-use
+// sentinel (U+F8FF) and restored at init — byte-identical to _QUERY_CHART_SYSTEM_PROMPT.
+var chartSystemPrompt = strings.ReplaceAll(`You are a data-visualisation expert. Given a ClickHouse SQL result set described as column names and sample rows, produce an Apache ECharts option object (JSON) that best visualises the data.
+
+Guidelines:
+- Output ONLY a valid JSON object — the value to assign to chart.setOption(...).
+- You MUST return a non-empty final JSON object.
+- Use Bootstrap 5 colours where possible (primary: #0d6efd, success: #198754, danger: #dc3545, warning: #ffc107, info: #0dcaf0).
+- Choose the most appropriate chart type from the full ECharts library (bar, line, pie, scatter, heatmap, radar, funnel, gauge, candlestick, tree, treemap, sunburst, etc.).
+- Titles, tooltips, legends, and axes should be concise and readable.
+- Set backgroundColor: 'transparent' to inherit the page background.
+- If the data is tabular with no obvious chart form, use a simple bar chart.
+- If a preferred chart type is incompatible with available columns, choose the nearest compatible
+    type and still return valid JSON.
+- The JSON must be parseable by JSON.parse() with no trailing commas or comments.
+
+Formatting and placeholder guidance:
+- Prefer compact, deterministic ECharts option structures with explicit arrays/objects.
+- If you use custom placeholders, only use {{rows}}, {{records}}, {{columns}}, or named-dataset forms like
+    {{rows:nodes}} / {{rows:links}}.
+- Do not emit pseudo-JSON, JavaScript functions, or template syntax beyond those placeholders.
+
+Reference examples (for shape/style only):
+Mapping JSON example:
+{
+    "points": {"from": "rows"},
+    "labels": {"from": "column", "name": "service"},
+    "values": {"from": "column", "name": "error_count"}
+}
+
+ECharts option JSON example:
+{
+    "backgroundColor": "transparent",
+    "tooltip": {"trigger": "axis"},
+    "xAxis": {"type": "category"},
+    "yAxis": {"type": "value"},
+    "series": [
+        {
+            "type": "bar",
+            "data": "{{points}}"
+        }
+    ]
+}
+`, "", "`")
+
+// chartJSONRepairSystemPrompt mirrors app.py _QUERY_CHART_JSON_REPAIR_SYSTEM_PROMPT (the trailing
+// newline before the closing delimiter is part of the prompt, matching the Python triple-quoted form).
+const chartJSONRepairSystemPrompt = `You repair malformed Apache ECharts option JSON.
+
+Rules:
+- Return ONLY a valid JSON object.
+- Preserve the original visualization intent as closely as possible.
+- Do not add markdown, comments, or code fences.
+- Ensure the output is parseable by JSON.parse().
+`
+
+// aiHelperDefaultSystemPrompt mirrors app.py's ai_helper default system prompt (the text used when
+// ai.system_prompt is unset). The route appends the page + dashboard action manifests and the
+// memory/continuity/prior-summary blocks after this (see buildAIHelperContext). The trailing space
+// is intentional — the manifest text is concatenated directly onto it, exactly as in Python.
+const aiHelperDefaultSystemPrompt = `You are an expert observability assistant for SOBS (Simple Observe Stack). ` +
+	`You help operators understand and troubleshoot their application telemetry including ` +
+	`logs, traces, errors, metrics, RUM events, and AI transparency data. ` +
+	`Be concise and actionable. When suggesting SQL queries, use ClickHouse syntax. ` +
+	`If the request is ambiguous and multiple interpretations are plausible, ask one short ` +
+	`clarifying question before taking action. If intent is clear, act directly. ` +
+	`Try higher-quality solutions before simplistic ones, especially for grouping/ranking asks. ` +
+	`Only propose UI actions that exist in the action manifest for this page. ` +
+	`Do not claim any UI action was executed unless a tool is called and execution is ` +
+	`confirmed by the app. ` +
+	`When a UI action will be applied by the browser after your response, describe it as ` +
+	`proposed, queued, or ready to apply; do not say it already succeeded. ` +
+	`If the page action manifest does not expose the control needed for the request, explain ` +
+	`that limitation and do not call a UI action unless you can pivot using cross-page actions. ` +
+	`For chart or dashboard creation requests, prefer a cross-page pivot to /dashboards using ` +
+	`available dashboard actions. ` +
+	`If tools are available and the user asks to apply a logs SQL filter, call ` +
+	`propose_ui_action with action_id logs.filter.apply_sql. ` +
+	`If tools are available and the user asks to apply an AI page SQL filter, call ` +
+	`propose_ui_action with action_id ai.filter.apply_sql. ` +
+	`The otel_logs table has an EventName column for structured event types. ` +
+	`To filter by event name use: EventName = 'turn.feedback' ` +
+	`To access log attributes use: LogAttributes['gen_ai.feedback.note'] ` +
+	`Examples: EventName = 'turn.feedback' finds AI assistant feedback records; ` +
+	`EventName = 'turn.complete' finds completed AI turns; ` +
+	`EventName = 'turn.feedback' AND TraceId = '<chat_id>' scopes to one conversation. ` +
+	`All AI assistant telemetry lives in otel_logs under ServiceName = 'sobs-ai-helper'. ` +
+	`On the AI page the table is otel_traces. Supported aliases include: service, model, provider, ` +
+	`operation, prompt, response, span_name, row_type, trace_id, span_id, ts, status, ` +
+	`error_type, tokens_in, tokens_out, ` +
+	`thinking_tokens, duration_ms. ` +
+	`Do not use LogAttributes[...] on the AI page; use aliases or SpanAttributes[...] only. ` +
+	`AI page examples: row_type = 'system' AND span_name = 'ai.tool.executed'; ` +
+	`model = 'gpt-oss:120b-cloud' AND tokens_out > 1000; ` +
+	`prompt ILIKE '%graph%' OR response ILIKE '%chart%'; ` +
+	`provider = 'sobs' AND error_type != ''; ` +
+	`duration_ms > 1000 ORDER BY Timestamp DESC is not valid in WHERE, so only emit the filter expression. ` +
+	`For requests like 'longest traces' or 'highest total duration by trace', generate a ` +
+	`richer WHERE clause using an IN subquery with GROUP BY trace id and ORDER BY sum(Duration) DESC. ` +
+	`At the very end of every response, append a single compact metadata block in this exact format: ` +
+	`<assistant_meta>{"turn_summary":{"request":"...","action":"...","result":"..."},` +
+	`"memory_candidates":["optional memory 1","optional memory 2"]}</assistant_meta>. ` +
+	`Keep memory_candidates empty when no durable memory is needed. ` +
+	`Do not include any additional text after </assistant_meta>. `

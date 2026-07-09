@@ -36,6 +36,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Local dev: Go SOBS build output + chdb data dir (scripts/start_ollama_ai_test_go.sh)
+.local/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -208,3 +211,12 @@ file:/tmp/
 
 # Integration test screenshots (uploaded as CI artifacts)
 tests/screenshots/
+
+# Pinned libchdb native library for chdb-go (Phase 0) — 326MB, downloaded not committed
+/.libchdb/
+# macOS arm64 libchdb (chdb-core v26.5.0) for running the parity harness natively on a Mac
+# (the Go side dlopens a Mach-O lib; the Linux /.libchdb/ is for the Docker harness). Local-only.
+/.libchdb-macos/
+
+# air (Go hot-reload) build output
+go/tmp/

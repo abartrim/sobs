@@ -9,9 +9,9 @@
 # Kubernetes is not used here. No kubectl setup is required.
 #
 # Usage:
-#   ./scripts/start_ollama_ai_test.sh
-#   ./scripts/start_ollama_ai_test.sh -- python app.py
-#   OLLAMA_BASE_URL=http://127.0.0.1:11434 ./scripts/start_ollama_ai_test.sh -- .venv/bin/python app.py
+#   ./scripts/start_ollama_ai_test.sh                      # runs go/sobs (build it first)
+#   ./scripts/start_ollama_ai_test.sh -- ./go/sobs
+#   OLLAMA_BASE_URL=http://127.0.0.1:11434 ./scripts/start_ollama_ai_test.sh
 #
 # Optional demo app controls:
 #   START_EXAMPLE_APP=1 (default) launches a local Flask demo app for RUM/replay testing.
@@ -79,10 +79,12 @@ if [[ "${1:-}" == "--" ]]; then
   shift
 fi
 RUN_CMD=("$@")
-RUN_CMD_DEFAULT=0
 if [[ ${#RUN_CMD[@]} -eq 0 ]]; then
-  RUN_CMD=("$SOBS_PYTHON" app.py)
-  RUN_CMD_DEFAULT=1
+  echo "[error] no command given after --." >&2
+  echo "Use ./scripts/start_ollama_ai_test_go.sh instead — it builds the Go binary (with the" >&2
+  echo "right CGO/libchdb setup) and hands off to this script automatically. Or pass an already" >&2
+  echo "-built binary/command directly, e.g. -- ./go/sobs." >&2
+  exit 1
 fi
 
 cleanup() {
@@ -109,12 +111,13 @@ start_example_app() {
   ensure_example_otel_deps() {
     local -a required_modules
     required_modules=(
+      flask
       opentelemetry.distro
       opentelemetry.instrumentation.flask
       opentelemetry.instrumentation.logging
       opentelemetry.exporter.otlp.proto.http.trace_exporter
     )
-    local -a missing_modules
+    local -a missing_modules=()
     local mod
     for mod in "${required_modules[@]}"; do
       if ! "$EXAMPLE_APP_PYTHON" - <<PY >/dev/null 2>&1
@@ -126,7 +129,11 @@ PY
       fi
     done
 
-    if [[ ${#missing_modules[@]} -eq 0 ]]; then
+    # An UNASSIGNED `local -a` array is treated as "unset" under `set -u` (still true in bash 5.3), so
+    # `${#missing_modules[@]}` errors "missing_modules: unbound variable" when nothing is missing.
+    # Initialize with `=()` above and test the joined value with a `:-` default so the all-present
+    # (self-correcting) path returns cleanly instead of aborting the launcher.
+    if [[ -z "${missing_modules[*]:-}" ]]; then
       return 0
     fi
 
@@ -138,6 +145,7 @@ PY
 
     echo "[info] installing missing OTEL packages for demo app instrumentation"
     "$EXAMPLE_APP_PYTHON" -m pip install -q \
+      flask \
       opentelemetry-distro \
       opentelemetry-instrumentation \
       opentelemetry-instrumentation-flask \
@@ -217,16 +225,15 @@ PY
 }
 
 if ! curl -fsS "$OLLAMA_TAGS_URL" >/dev/null 2>&1; then
-  echo "[error] cannot reach Ollama at $OLLAMA_BASE_URL" >&2
-  echo "Start Ollama first (example: 'ollama serve') or set OLLAMA_BASE_URL." >&2
-  exit 1
-fi
-
-if [[ "$RUN_CMD_DEFAULT" == "1" ]] && curl -fsS http://127.0.0.1:44317/health >/dev/null 2>&1; then
-  echo "[error] SOBS already appears to be running on http://127.0.0.1:44317" >&2
-  echo "Stop the existing instance before running this script with default app startup." >&2
-  echo "Hint: if you only want the demo app, run with '-- echo demo-only' and START_EXAMPLE_APP=1." >&2
-  exit 1
+  if [[ "${SOBS_AI_OPTIONAL:-0}" == "1" ]]; then
+    echo "[warn] Ollama not reachable at $OLLAMA_BASE_URL — continuing without AI (SOBS_AI_OPTIONAL=1)." >&2
+    echo "[warn] AI routes will be unconfigured; data ingestion and the rest of SOBS still work." >&2
+  else
+    echo "[error] cannot reach Ollama at $OLLAMA_BASE_URL" >&2
+    echo "Start Ollama first (example: 'ollama serve') or set OLLAMA_BASE_URL." >&2
+    echo "Or set SOBS_AI_OPTIONAL=1 to run without a model server." >&2
+    exit 1
+  fi
 fi
 
 if [[ "$OLLAMA_PULL_MODELS" == "1" ]]; then

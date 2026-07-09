@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1
+# CI build+test image for the Go server. Every heavy input — the apt packages, the Go toolchain,
+# libchdb, and the Go module graph — is its OWN cached layer, pulled from the in-cluster registry
+# buildcache. Only a source change busts the final COPY+build+test layers, so after the first run a
+# build re-runs ONLY the changed code; everything else is a cache hit.
+#
+# The build+test run INSIDE this container (a fresh process tree). That is REQUIRED for chdb
+# (embedded ClickHouse): its global/static state SIGSEGVs when the GitHub Actions .NET runner agent
+# execs `go test` directly, but is fine in a clean container process.
+#
+# Also copies templates/ and static/ (their own cache layer, independent of go/) — the
+# go/goldenreplay suite boots the real compiled sobs binary as a subprocess with its working
+# directory at the repo root, so the binary's relative template/static-dir defaults need real
+# files on disk, not just the go/ source tree Dockerfile.ci otherwise scopes to.
+FROM ubuntu:26.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# --- layer: OS packages (busts only when this RUN changes) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- layer: Go toolchain (busts only on GO_VERSION) ---
+ARG GO_VERSION=1.23.4
+RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    GOTOOLCHAIN=local \
+    GOPROXY=http://athens.ci-cache.svc.cluster.local:5000 \
+    GOSUMDB=off \
+    GOMODCACHE=/root/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+# --- layer: pinned libchdb (busts only on CHDB_VERSION) ---
+ARG CHDB_VERSION=v26.5.0
+RUN mkdir -p /opt/libchdb \
+    && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/linux-x86_64-libchdb.tar.gz" \
+       | tar -C /opt/libchdb -xz \
+    && test -f /opt/libchdb/libchdb.so
+ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
+
+WORKDIR /src/go
+# --- layer: module graph (busts only on go.mod/go.sum) ---
+COPY go/go.mod go/go.sum ./
+RUN go mod download
+
+# --- layer: templates/static (busts only when these change, independent of go/) ---
+WORKDIR /src
+COPY templates/ templates/
+COPY static/ static/
+
+WORKDIR /src/go
+# --- layers: source -> gofmt/vet/build/test (busts on any source change) ---
+COPY go/ ./
+RUN gofmt_out="$(gofmt -l .)"; if [ -n "$gofmt_out" ]; then echo "::error::not gofmt-clean:"; echo "$gofmt_out"; exit 1; fi
+RUN go vet ./...
+RUN go build ./...
+
+RUN go vet -tags chdb ./goldenreplay/...
+
+# GOCOVERDIR collects counter data from BOTH the unit tests and the golden-corpus replay
+# (SOBS_GOCOVER=1 points the replayed sobs binary's own flush hook at the same directory);
+# coverage_gate.sh then measures their union. All three run in ONE RUN instruction (one
+# container instance, one filesystem) rather than as separate layers — GOCOVERDIR's
+# per-process-unique counter files make it safe to accumulate across steps, but keeping the
+# whole measure-then-gate sequence inside a single step removes any dependency on BuildKit's
+# cross-layer snapshot handling, which is worth avoiding here.
+#
+# --- Go-native golden-corpus replay suite (Phase 0 of the Python-removal cutover): replays the
+# frozen corpus in go/testdata/ against this same compiled binary over real HTTP, no Python
+# involved. SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise
+# trips inside the nested dind container under this suite's per-profile concurrency (the same
+# flag the parity job sets for the same reason). SOBS_GOCOVER=1 builds the replayed sobs binary
+# with coverage instrumentation too — see goldenreplay/replay_test.go's buildBinaries. ---
+ENV GOCOVERDIR=/tmp/gocoverdir
+RUN mkdir -p "$GOCOVERDIR" \
+    && go test -p 2 -count=1 -cover -covermode=atomic ./... -args -test.gocoverdir="$GOCOVERDIR" \
+    && SOBS_CHDB_MAX_SERVER_MB=0 SOBS_GOCOVER=1 go test -tags chdb -run TestGoldenCorpus -v ./goldenreplay/... \
+    && ./coverage_gate.sh "$GOCOVERDIR"
+
+# Tiny final stage so the image (if ever pushed) is trivial; the value is the cached build layers.
+FROM scratch AS result
+COPY --from=build /src/go/go.mod /go.mod

@@ -19,7 +19,7 @@ Flask/Jinja2, Bootstrap 5, chDB. Templates extend `base.html` via `{% block styl
 ## Design Constants
 
 Use these exact values throughout — do not hardcode in individual templates:
-- **Mobile breakpoint token:** `{{ mobile_breakpoint_max }}` (currently resolves to `575.98px` from `app.py`)
+- **Mobile breakpoint token:** `{{ mobile_breakpoint_max }}` (currently resolves to `575.98px`, set in `go/cmd/sobs/render.go`)
 - **Mobile breakpoint CSS usage:** `@media (max-width: {{ mobile_breakpoint_max }})`
 - **Mobile breakpoint JS usage:** `window.matchMedia('(max-width: {{ mobile_breakpoint_max }})')`
 - **Test viewports:** 375px (small mobile), 480px (mobile), 575px (trigger point), 992px (tablet), 1440px (desktop)
