@@ -36,7 +36,11 @@ func normalizeBasePath(v string) string {
 	if !strings.HasPrefix(v, "/") {
 		v = "/" + v
 	}
-	if len(v) > 1 && v[1] == '\\' {
+	// A leading-slash check alone is an incomplete redirect-target guard (CWE-601): browsers treat
+	// both "//" and "/\" as protocol-relative absolute URLs. repeatedSlashes above already makes
+	// "//" unreachable here, but check both together explicitly so this guard is self-evidently
+	// complete rather than relying on that as an implicit invariant.
+	if len(v) < 2 || v[0] != '/' || v[1] == '/' || v[1] == '\\' {
 		return ""
 	}
 	v = strings.TrimSuffix(v, "/")
