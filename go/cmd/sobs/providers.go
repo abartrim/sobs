@@ -40,3 +40,9 @@ var authGate = func(s *server, w http.ResponseWriter, r *http.Request) bool {
 var newWriteQueue = func(cfg config) writeQueuer {
 	return newDefaultWriteQueue()
 }
+
+// newSSEBroker constructs the process's /tail live-stream pub/sub hub (see handlers_tail.go).
+// A package-level var, like the other seams above, so it can be swapped out in tests.
+var newSSEBroker = func() ssePubSub {
+	return &sseBroker{subs: map[chan string]struct{}{}}
+}

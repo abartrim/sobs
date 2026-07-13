@@ -21,7 +21,7 @@ type server struct {
 	cfg       config
 	mux       *http.ServeMux
 	db        store.DB
-	sse       *sseBroker
+	sse       ssePubSub
 	auth      authConfig
 	wq        writeQueuer
 	tel       *telemetry
