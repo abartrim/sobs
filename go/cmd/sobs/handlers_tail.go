@@ -9,6 +9,14 @@ import (
 	"github.com/sobs/sobs/internal/jsonenc"
 )
 
+// ssePubSub is the /tail live-stream hub's interface, factored out of sseBroker so it can be
+// swapped out in tests (see providers.go's newSSEBroker).
+type ssePubSub interface {
+	subscribe() chan string
+	unsubscribe(chan string)
+	broadcast(string)
+}
+
 // sseBroker is the in-process publish/subscribe hub for the /tail live stream — the Go analog
 // of app.py's _sse_subscribers set + _sse_broadcast. Ingest handlers publish OTEL events; each
 // /tail connection subscribes a buffered channel.
@@ -16,8 +24,6 @@ type sseBroker struct {
 	mu   sync.Mutex
 	subs map[chan string]struct{}
 }
-
-func newSSEBroker() *sseBroker { return &sseBroker{subs: map[chan string]struct{}{}} }
 
 // sseQueueMaxsize mirrors app.py _SSE_QUEUE_MAXSIZE = int(os.environ.get("SOBS_SSE_QUEUE_MAX", 200)).
 var sseQueueMaxsize = envInt("SOBS_SSE_QUEUE_MAX", 200)
