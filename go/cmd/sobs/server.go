@@ -76,6 +76,9 @@ func newServer(cfg config) *server {
 	s.applyRawMetricsRetention()
 	// Seed the app/release/artifact registry from SOBS_APP_REGISTRY_SEED_JSON (no-op when unset).
 	s.seedAppRegistry()
+	// Pre-seed an MCP API key from SOBS_MCP_API_KEY (no-op when unset) — local dev / agent access
+	// without a manual POST /api/mcp/keys round-trip.
+	s.seedMcpAPIKeyFromEnv()
 	// Background DB writer (app.py _ensure_write_worker), via the newWriteQueue provider seam
 	// (providers.go) — the writeQueuer analog of openStore/authGate. The writer's ops use s.db, so
 	// start it only after the store is opened. Under parity, ingest writes are awaited

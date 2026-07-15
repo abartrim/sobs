@@ -387,6 +387,19 @@ MCP endpoints use a separate key mechanism from the ingest API key.
 Keys are stored as scrypt-derived fingerprints in `sobs_app_settings` (never stored in plain text).
 The scrypt salt is derived from the installation's `SOBS_SECRET_KEY`, so fingerprints are unique per deployment.
 
+#### Pre-seeding a key from the environment
+
+For local dev and CI/agent setups where clicking through **Settings → MCP** isn't practical, set
+`SOBS_MCP_API_KEY` before startup and the server registers it as a valid key automatically:
+
+```bash
+SOBS_MCP_API_KEY=my-local-dev-key sobs
+```
+
+The raw value can be any string — it's fingerprinted with the same scrypt hash as a
+UI-generated key. Seeding is idempotent (restarting with the same value doesn't create a
+duplicate key) and additive (it never replaces or revokes keys created through the UI).
+
 ### VS Code / GitHub Copilot configuration
 
 Add to `.vscode/mcp.json` (or your Copilot agent config):
@@ -544,6 +557,7 @@ The Work Items page is intended to make these decisions visible so operators can
 |-----------------------------|----------------|--------------------------------------------------|
 | `SOBS_DATA_DIR`             | `./data`       | Directory for embedded chDB state                |
 | `SOBS_API_KEY`              | _(empty)_      | Optional auth key for ingest endpoints           |
+| `SOBS_MCP_API_KEY`          | _(empty)_      | Optional MCP API key pre-seeded into the key store on startup (local dev / agent access, see [MCP Endpoints](#mcp-endpoints-copilot--ai-agent-access)) |
 | `SOBS_BASIC_AUTH_USERNAME`  | _(empty)_      | Optional Basic Auth username for the Web UI      |
 | `SOBS_BASIC_AUTH_PASSWORD`  | _(empty)_      | Optional Basic Auth password for the Web UI      |
 | `SOBS_EXTERNAL_AUTH_URL`    | _(empty)_      | Optional external Bearer validator for the Web UI |
