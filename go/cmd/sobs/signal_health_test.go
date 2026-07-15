@@ -30,6 +30,9 @@ func TestGetSignalHealthByService(t *testing.T) {
 				[]any{"svc-a", "mem", "usage", "", 10.0, 10.0}, // different source, no match -> normal
 				[]any{"svc-b", "cpu", "usage", "", 50.0, 10.0}, // matches rule, below warning -> normal
 				[]any{"svc-c", "cpu", "usage", "", 85.0, 10.0}, // matches rule, warning<=value<critical -> warning
+				[]any{"svc-d", "net", "usage", "", 1.0, 10.0},  // no match -> normal
+				[]any{"svc-d", "gpu", "usage", "", 2.0, 10.0},  // no match -> normal (2nd normal signal, same service)
+				[]any{"svc-d", "io", "usage", "", 3.0, 10.0},   // no match -> normal (3rd normal signal, same service)
 			), nil
 		case strings.Contains(q, "sobs_anomaly_rules"):
 			return storetest.Result(ruleCols,
@@ -41,10 +44,11 @@ func TestGetSignalHealthByService(t *testing.T) {
 	}}}
 
 	got := s.getSignalHealthByService(6)
-	if len(got) != 3 {
-		t.Fatalf("want 3 services, got %d: %v", len(got), got)
+	if len(got) != 4 {
+		t.Fatalf("want 4 services (one entry each, not one per signal), got %d: %v", len(got), got)
 	}
-	// Sorted by severity descending: svc-a (outlier), svc-c (warning), svc-b (normal).
+	// Sorted by severity descending, then service name ascending within a tier:
+	// svc-a (outlier), svc-c (warning), svc-b (normal), svc-d (normal).
 	svc0 := got[0].(map[string]any)
 	if svc0["service"] != "svc-a" || svc0["worst_state"] != "outlier" || svc0["signal_count"] != 2 {
 		t.Fatalf("rank0 wrong: %v", svc0)
@@ -56,6 +60,14 @@ func TestGetSignalHealthByService(t *testing.T) {
 	svc2 := got[2].(map[string]any)
 	if svc2["service"] != "svc-b" || svc2["worst_state"] != "normal" || svc2["signal_count"] != 1 {
 		t.Fatalf("rank2 wrong: %v", svc2)
+	}
+	// Regression: a service whose signals are ALL "normal" (rank 0) must still
+	// collapse to a single entry — previously the seen-check piggybacked on
+	// serviceWorst[svc]'s key ever being inserted, which never happened when
+	// rank stayed 0, so the service was appended to `order` once per signal.
+	svc3 := got[3].(map[string]any)
+	if svc3["service"] != "svc-d" || svc3["worst_state"] != "normal" || svc3["signal_count"] != 3 {
+		t.Fatalf("rank3 wrong (duplicate-service regression): %v", svc3)
 	}
 
 	// Query error -> empty slice, not nil.

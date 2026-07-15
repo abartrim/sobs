@@ -145,7 +145,7 @@
     <i class="bi bi-check2-circle me-1"></i>View issue →
   </a>
   {% else %}
-  <button class="btn btn-sm btn-outline-danger raise-issue-btn"
+  <button class="btn btn-sm btn-outline-secondary raise-issue-btn"
           data-err-type="{{ err.err_type }}"
       data-err-message="{{ err.message|mask }}"
       data-err-service="{{ (err.service or '—')|mask }}"

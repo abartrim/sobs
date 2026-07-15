@@ -424,21 +424,23 @@
     font-weight: 600;
     color: color-mix(in srgb, var(--bs-body-color) 82%, var(--bs-secondary-color));
   }
+  /* Single-line "YYYY-MM-DD HH:MM:SS" to match the Logs/Errors/Traces/Metrics
+     timestamp convention — was previously a stacked two-line date+time with
+     mismatched weights, the one place in the app that split them apart. */
   .rum-session-ts {
     display: flex;
-    flex-direction: column;
-    line-height: 1.1;
-    gap: .2rem;
+    flex-direction: row;
+    align-items: baseline;
+    gap: .35rem;
     font-family: var(--bs-font-monospace);
   }
   .rum-session-ts-date {
-    font-size: .84rem;
-    font-weight: 600;
-    color: color-mix(in srgb, var(--bs-body-color) 76%, var(--bs-secondary-color));
+    font-size: .8rem;
+    color: var(--bs-body-color);
   }
   .rum-session-ts-time {
-    font-size: .74rem;
-    color: var(--bs-secondary-color);
+    font-size: .8rem;
+    color: var(--bs-body-color);
   }
   .rum-session-id {
     font-size: .78rem;
@@ -1130,16 +1132,16 @@
                       <a href="{{ url_for('view_logs', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-journal-text me-1"></i>Logs
                       </a>
-                      <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-info">
-                        <i class="bi bi-diagram-3 me-1"></i>Trace {{ ev.data.get('traceId')[:12] }}
+                      <a href="{{ url_for('view_traces', trace_id=ev.data.get('traceId'), from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary" title="{{ ev.data.get('traceId') }}">
+                        <i class="bi bi-diagram-3 me-1"></i>Trace {% set tid = ev.data.get('traceId') %}{% if tid | length > 13 %}{{ tid[:6] }}…{{ tid[-6:] }}{% else %}{{ tid }}{% endif %}
                       </a>
-                      <a href="{{ url_for('view_incident', trace_id=ev.data.get('traceId'), rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                      <a href="{{ url_for('view_incident', trace_id=ev.data.get('traceId'), rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-shield-exclamation me-1"></i>Incident View
                       </a>
                     </div>
                     {% elif ev.event_type in ('error', 'unhandledrejection') %}
                     <div class="mb-3 rum-detail-links">
-                      <a href="{{ url_for('view_incident', rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-primary">
+                      <a href="{{ url_for('view_incident', rum_session=ev.session_key, rum_ts=ev.ts, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-shield-exclamation me-1"></i>Incident View
                       </a>
                     </div>
@@ -2443,7 +2445,7 @@ _sobsInitRegexFilter({
   var lastUpdatedEl = document.getElementById('rumLastUpdated');
   if (lastUpdatedEl) {
     var loadedAt = new Date();
-    var timeLabel = loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    var timeLabel = loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     lastUpdatedEl.textContent = 'Last updated: ' + timeLabel;
     lastUpdatedEl.title = loadedAt.toLocaleString();
   }

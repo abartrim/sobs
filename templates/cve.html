@@ -435,7 +435,13 @@ function loadRepoHealthSummary() {
       prsEl.textContent = String(data.open_prs || 0);
       securityEl.textContent = String(data.security_items || 0);
       scannedEl.textContent = String(data.scanned_repos || 0);
-      metaEl.textContent = 'Version-scoped to registered release versions only. Last synced: ' + String(data.last_synced_at || '');
+      var syncedRaw = String(data.last_synced_at || '');
+      // Route through the shared timezone formatter instead of dumping the API's
+      // raw ISO-8601 string — otherwise this is the only timestamp on the page
+      // that doesn't match the "Last scan" line right above it (or the rest of
+      // the app's "YYYY-MM-DD HH:MM:SS" convention).
+      var syncedDisplay = syncedRaw && window.sobsTimezone ? window.sobsTimezone.formatUtc(syncedRaw) : syncedRaw;
+      metaEl.textContent = 'Version-scoped to registered release versions only. Last synced: ' + syncedDisplay;
 
       var repos = Array.isArray(data.repos) ? data.repos.slice(0, 8) : [];
       if (!repos.length) {

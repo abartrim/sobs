@@ -198,10 +198,10 @@
               <span class="text-secondary font-monospace signal-raw-id">{{ r.metric }}</span>
             </td>
             <td class="small" title="{{ r.metric_kind }}" data-label="Kind">{{ source_label(r.metric_kind) }}</td>
-            <td class="small font-monospace" data-label="Value">{{ r.value }}</td>
-            <td class="small font-monospace" data-label="Baseline">{{ r.baseline_mean }}</td>
-            <td class="small font-monospace" data-label="Band">{{ r.baseline_lower }} .. {{ r.baseline_upper }}</td>
-            <td class="small font-monospace" data-label="Z">{{ r.anomaly_score }}</td>
+            <td class="small font-monospace" data-label="Value">{{ r.value | round(2) }}</td>
+            <td class="small font-monospace" data-label="Baseline">{{ r.baseline_mean | round(2) }}</td>
+            <td class="small font-monospace" data-label="Band">{{ r.baseline_lower | round(2) }} .. {{ r.baseline_upper | round(2) }}</td>
+            <td class="small font-monospace" data-label="Z">{{ r.anomaly_score | round(2) }}</td>
             <td data-label="State">
               <span class="badge {% if r.anomaly_state == 'outlier' %}bg-danger{% elif r.anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
                 {{ r.anomaly_state }}

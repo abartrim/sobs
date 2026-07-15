@@ -342,7 +342,7 @@
     <h2 class="accordion-header">
       <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#trace{{ group.id }}">
         <div class="d-flex gap-2 align-items-center w-100 me-2 flex-wrap">
-          <span class="badge bg-primary">Trace {{ group.trace_id[:12] }}{% if group.trace_id | length > 12 %}…{% endif %}</span>
+          <span class="badge bg-primary" title="{{ group.trace_id }}">Trace {% if group.trace_id | length > 13 %}{{ group.trace_id[:6] }}…{{ group.trace_id[-6:] }}{% else %}{{ group.trace_id }}{% endif %}</span>
           <span class="badge bg-secondary">{{ group.calls }} calls</span>
           <span class="small text-warning">{{ group.tokens_in }}↑ {{ group.tokens_out }}↓</span>
           {% if group.errors %}
@@ -395,8 +395,8 @@
                   <a href="{{ url_for('view_logs', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
                     <i class="bi bi-journal-text me-1"></i>Logs
                   </a>
-                  <a href="{{ url_for('view_traces', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">
-                    Trace {{ turn.trace_id[:12] }}…
+                  <a href="{{ url_for('view_traces', trace_id=turn.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link" title="{{ turn.trace_id }}">
+                    Trace {% if turn.trace_id | length > 13 %}{{ turn.trace_id[:6] }}…{{ turn.trace_id[-6:] }}{% else %}{{ turn.trace_id }}{% endif %}
                   </a>
                   {% endif %}
                   {% if turn.completed_at %}<span class="sobs-tz-ts" data-utc-ts="{{ turn.completed_at }}">{{ turn.completed_at[:19] }}</span>{% endif %}

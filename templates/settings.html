@@ -29,7 +29,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ tag_rule_count }} rule{{ 's' if tag_rule_count != 1 else '' }}</span>
                         <a href="{{ url_for('view_tag_rules') }}"
-                           class="btn btn-sm btn-outline-info"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.tags"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -59,7 +59,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ anomaly_rule_count }} rule{{ 's' if anomaly_rule_count != 1 else '' }}</span>
                         <a href="{{ url_for('view_metrics_rules') }}"
-                           class="btn btn-sm btn-outline-warning"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.metrics_rules"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -89,7 +89,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span></span>
                         <a href="{{ url_for('list_dashboards') }}"
-                           class="btn btn-sm btn-outline-success"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.dashboards"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -124,7 +124,7 @@
                             <span class="badge text-bg-secondary">Not configured</span>
                         {% endif %}
                         <a href="{{ url_for('view_ai_settings') }}"
-                           class="btn btn-sm btn-outline-primary"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.ai"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -155,7 +155,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ agent_rule_count }} rule{{ 's' if agent_rule_count != 1 else '' }}</span>
                         <a href="{{ url_for('view_agent_rules') }}"
-                           class="btn btn-sm btn-outline-warning"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.agents"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -184,7 +184,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ notification_channel_count }} channel{{ 's' if notification_channel_count != 1 else '' }} · {{ notification_rule_count }} rule{{ 's' if notification_rule_count != 1 else '' }}</span>
                         <a href="{{ url_for('view_notifications') }}"
-                           class="btn btn-sm btn-outline-warning"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.notifications"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -215,7 +215,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">{{ masking_custom_key_count }} custom key{{ 's' if masking_custom_key_count != 1 else '' }} · {{ masking_custom_pattern_count }} custom pattern{{ 's' if masking_custom_pattern_count != 1 else '' }}</span>
                         <a href="{{ url_for('view_masking_settings') }}"
-                           class="btn btn-sm btn-outline-danger">
+                           class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-pencil-square me-1"></i><span class="settings-btn-label">Manage Masking</span>
                         </a>
                     </div>
@@ -239,7 +239,7 @@
                     </p>
                     <div class="d-flex align-items-center justify-content-end mt-2">
                         <a href="{{ url_for('view_enrichment_settings') }}"
-                           class="btn btn-sm btn-outline-primary"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.enrichment"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -294,7 +294,7 @@
                             <span class="badge text-bg-secondary">Disabled</span>
                         {% endif %}
                         <a href="{{ url_for('view_k8s_settings') }}"
-                           class="btn btn-sm btn-outline-info"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.kubernetes"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -336,7 +336,7 @@
                             <span class="badge text-bg-secondary">Backup disabled</span>
                         {% endif %}
                         <a href="{{ url_for('view_dm_settings') }}"
-                           class="btn btn-sm btn-outline-danger"
+                           class="btn btn-sm btn-outline-secondary"
                            data-ai-action-id="settings.nav.data_management"
                            data-ai-action-type="navigate"
                            data-ai-handler="navigate"
@@ -366,7 +366,7 @@
                     <div class="d-flex align-items-center justify-content-between mt-2">
                         <span class="badge text-bg-secondary">MCP</span>
                         <a href="{{ url_for('mcp.mcp_settings_page') }}"
-                           class="btn btn-sm btn-outline-primary">
+                           class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-pencil-square me-1"></i>Configure MCP
                         </a>
                     </div>

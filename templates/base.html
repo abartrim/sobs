@@ -44,6 +44,13 @@
     .sb-label { overflow: hidden; transition: opacity 0.15s ease, max-width 0.22s ease; max-width: 200px; white-space: nowrap; }
     /* ===== State 2: Compact (icon-only) ===== */
     .sidebar.sidebar-compact { width: var(--sb-compact); padding-left: 0; padding-right: 0; }
+    /* The reserved scrollbar gutter on .sidebar .nav (kept for the full-width
+       sidebar, where a few extra px is unnoticeable) skews margin:auto icon
+       centering leftward inside the 56px compact rail — enough that icons in
+       the scrollable nav list land ~4px left of the theme-toggle icon below
+       them, which lives outside that scroll container. Compact mode rarely
+       has enough items to actually scroll, so drop the reservation there. */
+    .sidebar.sidebar-compact .nav { scrollbar-gutter: auto; }
     .sidebar.sidebar-compact .sb-label { opacity: 0; max-width: 0; pointer-events: none; }
     .sidebar.sidebar-compact .sb-brand-text { display: none; }
     .sidebar.sidebar-compact .nav-link {
@@ -801,7 +808,7 @@
       <li class="nav-item mt-2">
         <button
           type="button"
-          class="nav-link btn btn-link text-start w-100"
+          class="nav-link btn btn-link"
           title="Getting Started"
           data-bs-toggle="modal"
           data-bs-target="#gettingStartedModal"

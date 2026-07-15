@@ -327,6 +327,11 @@
 
   modalEl.addEventListener('hidden.bs.modal', function () {
     persistState();
+    // Any dismissal (Skip, the header ×, backdrop click, Escape) means the
+    // user has seen the wizard — only the explicit "Done" flow additionally
+    // marks state.done via markDone(). Without this, "Skip for now" never
+    // persisted anything and the wizard reopened on every navigation.
+    safeSet(wizardSeenKey, '1');
   });
 
   // ── Load steps from API ──────────────────────────────────────────
@@ -479,11 +484,13 @@
     var tourModal = document.getElementById('firstRunTourModal');
     if (tourModal) {
       // Only wait for the tour's hidden.bs.modal event if the tour is actually
-      // going to open for this user. If it has already been seen/shown the event
-      // will never fire, so fall back to a short timeout instead.
-      var tourSeen   = safeGet('sobs.firstRunTourSeen.v1')  === '1';
-      var tourShownF = safeGet('sobs.firstRunTourShown.v1') === '1';
-      if (!tourSeen && !tourShownF) {
+      // opening on THIS page load. We can't infer that from localStorage here —
+      // by the time this script runs, the tour's own script has already flipped
+      // sobs.firstRunTourShown.v1 to '1', so re-reading it would always look
+      // like "already shown" and we'd fall through to the timeout below while
+      // the tour is still on screen, stacking both modals. Trust the flag the
+      // tour partial publishes before it mutates that key instead.
+      if (window.__sobsFirstRunTourWillShow) {
         tourModal.addEventListener('hidden.bs.modal', function onTourClose() {
           tourModal.removeEventListener('hidden.bs.modal', onTourClose);
           autoOpenWizard();

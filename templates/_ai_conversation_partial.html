@@ -81,8 +81,8 @@
   <a href="{{ url_for('view_logs', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View related logs">
     <i class="bi bi-journal-text me-1"></i>Logs
   </a>
-  <a href="{{ url_for('view_traces', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link">
-    Trace {{ item.trace_id[:12] }}…
+  <a href="{{ url_for('view_traces', trace_id=item.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link" title="{{ item.trace_id }}">
+    Trace {% if item.trace_id | length > 13 %}{{ item.trace_id[:6] }}…{{ item.trace_id[-6:] }}{% else %}{{ item.trace_id }}{% endif %}
   </a>
   {% else %}
   <a href="{{ url_for('view_logs', service=item.service, from_ts=from_ts, to_ts=to_ts) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:.75rem;" title="View logs for this service">
