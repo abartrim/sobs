@@ -1,0 +1,45 @@
+# Local-only helper image for regenerating go/testdata/golden.tar.gz — NOT part of CI.
+# Mirrors Dockerfile.ci up through `go vet -tags chdb ./goldenreplay/...`, then stops: the
+# actual TestCaptureGolden run happens via `docker run` with go/testdata bind-mounted, so the
+# regenerated archive lands directly on the host instead of being trapped in a container layer.
+#
+# Uses native linux/arm64 Go + libchdb builds (rather than Dockerfile.ci's amd64 pins) because
+# this runs under colima on Apple Silicon: amd64-under-QEMU emulation here segfaulted the Go
+# compiler mid-vet. Native arm64 sidesteps emulation entirely — CI itself still builds/tests
+# amd64 via Dockerfile.ci unchanged; this is a byte-format regeneration step, not a
+# platform-sensitive one (chdb's on-disk/response formatting doesn't vary by host arch).
+FROM --platform=linux/arm64 ubuntu:26.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG GO_VERSION=1.23.4
+RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    GOTOOLCHAIN=local \
+    GOSUMDB=off \
+    GOMODCACHE=/root/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+ARG CHDB_VERSION=v26.5.0
+RUN mkdir -p /opt/libchdb \
+    && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/linux-aarch64-libchdb.tar.gz" \
+       | tar -C /opt/libchdb -xz \
+    && test -f /opt/libchdb/libchdb.so
+ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
+
+WORKDIR /src/go
+COPY go/go.mod go/go.sum ./
+RUN go mod download
+
+WORKDIR /src
+COPY templates/ templates/
+COPY static/ static/
+
+WORKDIR /src/go
+COPY go/ ./
+RUN go vet ./...
+RUN go build ./...
+RUN go vet -tags chdb ./goldenreplay/...
