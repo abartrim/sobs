@@ -377,7 +377,7 @@
         <td data-label="Trace">
           {% if log.trace_id %}
           <a href="{{ url_for('view_traces', trace_id=log.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:110px;" title="{{ log.trace_id }}">
-            {{ log.trace_id[:12] }}…
+            {% if log.trace_id | length > 13 %}{{ log.trace_id[:6] }}…{{ log.trace_id[-6:] }}{% else %}{{ log.trace_id }}{% endif %}
           </a>
           {% else %}
           <span class="text-secondary">—</span>
@@ -659,7 +659,7 @@
     a.className = "trace-link text-truncate d-inline-block";
     a.style.maxWidth = "110px";
     a.title = traceId;
-    a.textContent = `${traceId.slice(0, 12)}…`;
+    a.textContent = traceId.length > 13 ? `${traceId.slice(0, 6)}…${traceId.slice(-6)}` : traceId;
     td.appendChild(a);
     return td;
   }

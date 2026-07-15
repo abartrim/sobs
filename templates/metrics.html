@@ -121,8 +121,8 @@
               {{ signal_label(r.source, r.signal) }}
               <span class="text-secondary font-monospace signal-raw-id">{{ r.signal }}</span>
             </td>
-            <td class="small font-monospace" data-label="Value">{{ r.last_value }}</td>
-            <td class="small font-monospace" data-label="Z">{{ r.last_anomaly_score }}</td>
+            <td class="small font-monospace" data-label="Value">{{ r.last_value | round(2) }}</td>
+            <td class="small font-monospace" data-label="Z">{{ r.last_anomaly_score | round(2) }}</td>
             <td data-label="State">
               <span class="badge {% if r.last_anomaly_state == 'outlier' %}bg-danger{% elif r.last_anomaly_state == 'warning' %}bg-warning text-dark{% else %}bg-success{% endif %}">
                 {{ r.last_anomaly_state }}

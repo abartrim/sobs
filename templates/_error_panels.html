@@ -311,7 +311,7 @@
                                 </button>
                             {% endif %}
                             {% if caller is defined %}{{ caller(err) }}{% endif %}
-                            <button class="btn btn-sm btn-outline-warning {{ ai_btn_class }}"
+                            <button class="btn btn-sm btn-outline-secondary {{ ai_btn_class }}"
                                     data-err-type="{{ err.err_type }}"
                                     data-err-message="{{ err.message|mask }}"
                                     data-err-service="{{ (err.service or '—')|mask }}"
@@ -324,7 +324,7 @@
                                 <i class="bi bi-robot me-1"></i><span class="error-panel-btn-label">Copy for AI</span>
                             </button>
                             {% if show_raise_issue %}
-                                <button class="btn btn-sm btn-outline-danger {{ raise_btn_class }}"
+                                <button class="btn btn-sm btn-outline-secondary {{ raise_btn_class }}"
                                         data-err-type="{{ err.err_type }}"
                                         data-err-message="{{ err.message|mask }}"
                                         data-err-service="{{ (err.service or '—')|mask }}"
@@ -346,7 +346,7 @@
                             {% endif %}
                             {% if show_incident_view %}
                                 <a href="{{ url_for('view_incident', error_id=err.id, trace_id=err.trace_id, from_ts=from_ts, to_ts=to_ts) }}"
-                                   class="btn btn-sm btn-outline-primary"
+                                   class="btn btn-sm btn-outline-secondary"
                                    title="Open unified incident evidence view">
                                     <i class="bi bi-shield-exclamation me-1"></i><span class="error-panel-btn-label">Incident View</span>
                                 </a>

@@ -186,11 +186,18 @@ func (s *server) getSignalHealthByService(hours int) []any {
 
 	serviceWorst := map[string]int{}
 	serviceCount := map[string]int{}
+	seenService := map[string]bool{}
 	order := []string{}
 	for _, row := range dicts {
 		svc := cStr(row, "ServiceName")
 		rank := anomalySeverityRank[orDefault(mapStr(row, "effective_state"), "normal")]
-		if _, seen := serviceWorst[svc]; !seen {
+		// Track "seen" independently of serviceWorst: when every signal for a
+		// service ranks "normal" (0), `rank > serviceWorst[svc]` (0 > 0) is
+		// always false, so serviceWorst[svc] never actually gets inserted —
+		// which previously made the seen-check below false on every row for
+		// that service and duplicated it into order once per signal.
+		if !seenService[svc] {
+			seenService[svc] = true
 			order = append(order, svc)
 		}
 		if rank > serviceWorst[svc] {

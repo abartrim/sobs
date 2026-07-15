@@ -223,7 +223,13 @@
 
   var seen = safeGet(tourSeenKey) === '1';
   var shown = safeGet(tourShownKey) === '1';
-  if (!seen && !shown) {
+  // Publish the pre-mutation decision so the setup wizard (which loads right
+  // after this partial) can tell "the tour is opening on this page load" apart
+  // from "the tour was already shown in a past session" — reading tourShownKey
+  // itself is unsafe for that because the line below flips it to '1' before
+  // the wizard's own script ever runs.
+  window.__sobsFirstRunTourWillShow = !seen && !shown;
+  if (window.__sobsFirstRunTourWillShow) {
     safeSet(tourShownKey, '1');
     modal.show();
   }

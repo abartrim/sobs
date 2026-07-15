@@ -285,7 +285,7 @@
       {{ (trace_detail.raw_windows or []) | length }} preserved window(s)
     </span>
     <a href="{{ url_for('view_incident', trace_id=trace_id, from_ts=from_ts, to_ts=to_ts) }}"
-       class="btn btn-sm btn-outline-primary ms-1"
+       class="btn btn-sm btn-outline-secondary ms-1"
        title="Open unified incident evidence view for this trace">
       <i class="bi bi-shield-exclamation me-1"></i>Incident View
     </a>
@@ -766,7 +766,7 @@
         <td class="small" data-label="HTTP">{% if span.http_status %}<span class="badge {% if span.http_status|string >= '500' %}bg-danger{% elif span.http_status|string >= '400' %}bg-warning text-dark{% else %}bg-success{% endif %}">{{ span.http_status }}</span>{% endif %}</td>
         <td data-label="Trace ID">
           <a href="{{ url_for('view_traces', trace_id=span.trace_id, from_ts=from_ts, to_ts=to_ts) }}" class="trace-link text-truncate d-inline-block" style="max-width:120px;" title="{{ span.trace_id }}">
-            {{ span.trace_id[:12] if span.trace_id else '—' }}{% if span.trace_id %}…{% endif %}
+            {% if span.trace_id %}{% if span.trace_id | length > 13 %}{{ span.trace_id[:6] }}…{{ span.trace_id[-6:] }}{% else %}{{ span.trace_id }}{% endif %}{% else %}—{% endif %}
           </a>
         </td>
       </tr>
