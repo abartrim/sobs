@@ -6,7 +6,7 @@
 # libchdb.so + templates/ + static/. The server self-initializes its chdb schema on first run
 # (ensureSchema), so a fresh container with an empty /data volume comes up serving immediately.
 
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 ARG TARGETARCH
 # GOPROXY/GOSUMDB default to Go's normal values so unparameterized builds are unaffected; CI on the
 # egress-restricted cluster passes --build-arg GOPROXY=<in-cluster Athens> GOSUMDB=off.

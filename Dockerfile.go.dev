@@ -5,7 +5,7 @@
 # save (a few-second Go compile — the dev-loop replacement for Quart's reloader). Not a production
 # artifact (use Dockerfile.go for that).
 
-FROM golang:1.23-bookworm
+FROM golang:1.26-bookworm
 ARG TARGETARCH
 
 # air live-reload tool (pinned).
