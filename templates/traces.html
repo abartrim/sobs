@@ -812,6 +812,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
+(function () {
 if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
   window.sobsTimezone.initPage({
     fromInputId: 'traces-from-ts',
@@ -1308,5 +1309,6 @@ window.SOBS.initSavedReportsDropdown({
     }
   }
 }());
+})();
 </script>
 {% endblock %}

@@ -221,6 +221,7 @@
 
 {% block scripts %}
 <script>
+(function () {
 function toSafeGithubIssueUrl(raw) {
   try {
     var parsed = new URL(String(raw || '').trim(), window.location.origin);
@@ -319,6 +320,7 @@ document.querySelectorAll('.work-item-detail-btn').forEach(function (btn) {
       window.sobsReportSaveModal.open({ pageType: 'work_items', filters: filters });
     }
   });
+})();
 })();
 </script>
 {% include "_work_items_walkthrough_script.html" %}

@@ -156,8 +156,7 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-(function () {
+window.SOBS.whenBootstrapReady(function () {
   'use strict';
 
   function createModalInstance(el) {
@@ -351,8 +350,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   }
-})();
-}); // DOMContentLoaded
+});
 </script>
 {% endblock %}
 

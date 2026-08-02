@@ -355,6 +355,7 @@ async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
 {% block scripts %}
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
+(function () {
   if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
     window.sobsTimezone.initPage({
       fromInputId: 'metrics-anomaly-from-ts',
@@ -601,5 +602,6 @@ async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
     onResize = function () { ec.resize(); };
     window.addEventListener('resize', onResize);
   })();
+})();
 </script>
 {% endblock %}

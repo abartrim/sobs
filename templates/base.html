@@ -712,6 +712,22 @@
   {% block styles %}{% endblock %}
 </head>
 <body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
+<script>
+  // Defined this early (before the content below) so a page's own bottom-of-page script can call
+  // it: on the very first hard page load this file's bootstrap.bundle.min.js tag hasn't run yet,
+  // so code that constructs a bootstrap.Modal/Tooltip/etc. synchronously would find `bootstrap`
+  // undefined. On every later boosted revisit bootstrap is already loaded (the JS realm
+  // persists), so this runs the callback immediately in that case instead of waiting forever
+  // for a DOMContentLoaded that will never fire again.
+  window.SOBS = window.SOBS || {};
+  window.SOBS.whenBootstrapReady = function (fn) {
+    if (window.bootstrap) {
+      fn();
+    } else {
+      document.addEventListener('DOMContentLoaded', fn, { once: true });
+    }
+  };
+</script>
 <div id="sbBoostBar"></div>
 <!-- Overlay backdrop for hamburger sidebar -->
 <div id="sbBackdrop" class="sb-backdrop"></div>
