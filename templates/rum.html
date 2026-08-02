@@ -2460,6 +2460,17 @@ _sobsInitRegexFilter({
   var _countdownTimer = null;
   var _remaining = 0;
 
+  // apply() below calls location.reload() on a timer — left running after navigating away via
+  // htmx boost (window is never swapped), it would eventually force-reload whatever OTHER page
+  // the user has since navigated to, not /rum. Clear it when this page's content is swapped away.
+  var rumMainContentEl = document.getElementById('mainContent');
+  if (rumMainContentEl) {
+    window.SOBS.onElementCleanup(rumMainContentEl, function () {
+      if (_refreshTimer) clearInterval(_refreshTimer);
+      if (_countdownTimer) clearInterval(_countdownTimer);
+    });
+  }
+
   function _tick() {
     _remaining -= 1;
     if (_remaining <= 0) _remaining = parseInt(select.value, 10);
@@ -2533,9 +2544,15 @@ _sobsInitRegexFilter({
   var vitalsCardsEl = document.getElementById('vitalsCards');
 
   function observeChart(el, chart) {
-    if (typeof ResizeObserver === 'undefined') return;
-    var observer = new ResizeObserver(function () { chart.resize(); });
-    observer.observe(el);
+    var observer = (typeof ResizeObserver === 'undefined') ? null : new ResizeObserver(function () { chart.resize(); });
+    if (observer) observer.observe(el);
+    // A ResizeObserver holds a strong reference to both `el` and (via this closure) `chart` —
+    // removing `el` from the document (an htmx-boosted nav away from this page) does NOT
+    // auto-disconnect it, so both would otherwise live for the rest of the session.
+    window.SOBS.onElementCleanup(el, function () {
+      if (observer) observer.disconnect();
+      chart.dispose();
+    });
   }
 
   document.querySelectorAll('.vitals-sparkline').forEach(function (el) {
@@ -2604,8 +2621,13 @@ _sobsInitRegexFilter({
 
   window.addEventListener('resize', resizeAll);
 
-  if (vitalsCardsEl && typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(resizeAll).observe(vitalsCardsEl);
+  if (vitalsCardsEl) {
+    var cardsObserver = (typeof ResizeObserver === 'undefined') ? null : new ResizeObserver(resizeAll);
+    if (cardsObserver) cardsObserver.observe(vitalsCardsEl);
+    window.SOBS.onElementCleanup(vitalsCardsEl, function () {
+      window.removeEventListener('resize', resizeAll);
+      if (cardsObserver) cardsObserver.disconnect();
+    });
   }
 }());
 
@@ -2687,9 +2709,12 @@ _sobsInitRegexFilter({
     var errSparkTimes  = errSparkSeries.rawTimes;
     var errSparkValues = errSparkSeries.values;
     errChart = echarts.init(errEl, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
-    if (typeof ResizeObserver !== 'undefined') {
-      new ResizeObserver(function () { errChart.resize(); }).observe(errEl);
-    }
+    var errObserver = (typeof ResizeObserver === 'undefined') ? null : new ResizeObserver(function () { errChart.resize(); });
+    if (errObserver) errObserver.observe(errEl);
+    window.SOBS.onElementCleanup(errEl, function () {
+      if (errObserver) errObserver.disconnect();
+      errChart.dispose();
+    });
     errChart.setOption({
       animation: false,
       backgroundColor: 'transparent',
@@ -2768,9 +2793,12 @@ _sobsInitRegexFilter({
     if (!expandedChart) {
       expandedChart = echarts.init(expandedEl,
         (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
-      if (typeof ResizeObserver !== 'undefined') {
-        new ResizeObserver(function () { expandedChart.resize(); }).observe(expandedEl);
-      }
+      var expandedObserver = (typeof ResizeObserver === 'undefined') ? null : new ResizeObserver(function () { expandedChart.resize(); });
+      if (expandedObserver) expandedObserver.observe(expandedEl);
+      window.SOBS.onElementCleanup(expandedEl, function () {
+        if (expandedObserver) expandedObserver.disconnect();
+        expandedChart.dispose();
+      });
     }
     expandedChart.setOption({
       animation: false,

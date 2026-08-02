@@ -463,6 +463,13 @@
     return;
   }
 
+  // Live-tail keeps an EventSource connection open indefinitely — without this, navigating away
+  // via htmx boost leaves it streaming in the background forever (the connection isn't tied to
+  // the DOM at all, so removing the page's elements alone doesn't close it).
+  window.SOBS.onElementCleanup(toggleBtn, function () {
+    stopLive();
+  });
+
   const activeFilters = {
     q: {{ q|tojson }},
     levels: {{ selected_levels|tojson }},
@@ -529,7 +536,10 @@
       statsSnapshotAge.textContent = String(ageSec);
     };
     update();
-    window.setInterval(update, 1000);
+    const tickerId = window.setInterval(update, 1000);
+    window.SOBS.onElementCleanup(statsSnapshotAge, function () {
+      window.clearInterval(tickerId);
+    });
   }
 
   function isPausedByScroll() {

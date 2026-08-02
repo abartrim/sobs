@@ -382,6 +382,14 @@ async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
     var rows = {{ rows | tojson }};
     var isDark = (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() === 'dark' : document.documentElement.getAttribute('data-bs-theme') === 'dark';
     var ec = echarts.init(chartEl, isDark ? 'dark' : null);
+    var onResize = null;
+    // Registered once, right after init, so it fires for every exit path (including the early
+    // "no data" return below) — otherwise the chart/its window resize listener outlive the
+    // swapped-away DOM node across every htmx-boosted revisit to this page.
+    window.SOBS.onElementCleanup(chartEl, function () {
+      if (onResize) window.removeEventListener('resize', onResize);
+      ec.dispose();
+    });
 
     if (!rows || !rows.length) {
       ec.setOption({
@@ -590,7 +598,8 @@ async function loadAnomalyWorkItemsBySignal(signalSource, signalName) {
       ]
     });
 
-    window.addEventListener('resize', function () { ec.resize(); });
+    onResize = function () { ec.resize(); };
+    window.addEventListener('resize', onResize);
   })();
 </script>
 {% endblock %}

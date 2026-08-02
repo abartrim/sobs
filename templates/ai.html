@@ -1256,6 +1256,18 @@ function loadAiRawAttrs(btn, preId, copyBtnId, ts, service, traceId, spanName) {
 /* ===== Live Tail ===== */
 var _liveTailEvt = null;
 
+// Left open, an EventSource keeps streaming in the background indefinitely — without this,
+// navigating away via htmx boost never closes it (the connection isn't tied to the DOM), since
+// this script (and its top-level _liveTailEvt var) only re-runs, it never tears down, on revisit.
+(function () {
+  var liveTailBtn = document.getElementById('liveTailBtn');
+  if (liveTailBtn && window.SOBS && window.SOBS.onElementCleanup) {
+    window.SOBS.onElementCleanup(liveTailBtn, function () {
+      stopLiveTail();
+    });
+  }
+})();
+
 function toggleLiveTail() {
   var panel = document.getElementById('liveTailPanel');
   if (panel.style.display === 'none') {

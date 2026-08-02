@@ -270,6 +270,18 @@
     };
   }
 
+  // Every chart on this page is a one-shot fetch-then-init with its own window resize listener
+  // that's never removed — harmless for a single real page load, but window itself is never
+  // swapped away by htmx boost, so revisiting this page piles up one more zombie listener (and
+  // an undisposed chart instance) per chart, per visit, for the rest of the session.
+  function registerChartResizeCleanup(el, chart, handler) {
+    window.addEventListener('resize', handler);
+    window.SOBS.onElementCleanup(el, function () {
+      window.removeEventListener('resize', handler);
+      chart.dispose();
+    });
+  }
+
   var eventsEl = document.getElementById('events-chart');
   if (eventsEl && window.echarts && eventTypesData.length) {
     var evChart = echarts.init(eventsEl, null, {renderer: 'canvas'});
@@ -295,7 +307,7 @@
         }
       }]
     });
-    window.addEventListener('resize', function() { evChart.resize(); });
+    registerChartResizeCleanup(eventsEl, evChart, function() { evChart.resize(); });
     var chartsPanel = document.getElementById('wtChartsPanel');
     if (chartsPanel) {
       chartsPanel.addEventListener('shown.bs.collapse', function() { evChart.resize(); });
@@ -320,7 +332,7 @@
           yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
           series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
         });
-        window.addEventListener('resize', function() { chart.resize(); });
+        registerChartResizeCleanup(el, chart, function() { chart.resize(); });
         var panel = document.getElementById('wtBrowsersPanel');
         if (panel) {
           panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -344,7 +356,7 @@
           yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
           series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
         });
-        window.addEventListener('resize', function() { chart.resize(); });
+        registerChartResizeCleanup(el, chart, function() { chart.resize(); });
         var panel = document.getElementById('wtOsPanel');
         if (panel) {
           panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -368,7 +380,7 @@
           yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
           series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
         });
-        window.addEventListener('resize', function() { chart.resize(); });
+        registerChartResizeCleanup(el, chart, function() { chart.resize(); });
         var panel = document.getElementById('wtTimezonesPanel');
         if (panel) {
           panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -392,7 +404,7 @@
           yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
           series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#17a2b8'}}]
         });
-        window.addEventListener('resize', function() { chart.resize(); });
+        registerChartResizeCleanup(el, chart, function() { chart.resize(); });
         var panel = document.getElementById('wtLanguagesPanel');
         if (panel) {
           panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -430,7 +442,7 @@
             }
           }]
         });
-        window.addEventListener('resize', function() { chart.resize(); });
+        registerChartResizeCleanup(el, chart, function() { chart.resize(); });
         var panel = document.getElementById('wtDevicesPanel');
         if (panel) {
           panel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -471,7 +483,7 @@
       yAxis: {type: 'category', data: top.map(function(d) { return d.name; }).reverse()},
       series: [{type: 'bar', data: top.map(function(d) { return d.value; }).reverse(), itemStyle: {color: '#4e8ef7'}}]
     });
-    window.addEventListener('resize', function() { chart.resize(); });
+    registerChartResizeCleanup(el, chart, function() { chart.resize(); });
     var chartsPanel = document.getElementById('wtChartsPanel');
     if (chartsPanel) {
       chartsPanel.addEventListener('shown.bs.collapse', function() { chart.resize(); });
@@ -492,7 +504,7 @@
           visualMap: {min:0, max:maxVal, left:'left', bottom:'5%', text:['High','Low'], calculable:true, inRange:{color:['#e0f0ff','#1a6eb5']}},
           series: [{type:'map', map:'world', roam:true, emphasis:{label:{show:true}}, data:countryCounts}]
         });
-        window.addEventListener('resize', function(){mc.resize();});
+        registerChartResizeCleanup(mapEl, mc, function(){mc.resize();});
         // re-render when the accordion panel is opened (ECharts needs visible container)
         var mapPanel = document.getElementById('wtMapPanel');
         if (mapPanel) {

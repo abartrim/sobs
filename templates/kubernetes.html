@@ -387,6 +387,16 @@
   var REFRESH_INTERVAL_MS = 30000;
   var _timer = null;
   var _countdownInterval = null;
+  // Both intervals are started unconditionally below and never stopped except by re-arming
+  // themselves — left running after navigating away via htmx boost (window is never swapped),
+  // they'd keep polling K8S_STATUS_URL in the background for the rest of the session.
+  var k8sMainContentEl = document.getElementById('mainContent');
+  if (k8sMainContentEl) {
+    window.SOBS.onElementCleanup(k8sMainContentEl, function () {
+      if (_timer) clearInterval(_timer);
+      if (_countdownInterval) clearInterval(_countdownInterval);
+    });
+  }
   var _allData = {
     nodes: [],
     deployments: [],

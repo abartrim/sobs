@@ -716,6 +716,14 @@
     var sourceBtn = document.getElementById('chart-source-btn-' + chartCfg.id);
     if (!el) return;
     var ec = echarts.init(el, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
+    var onChartResize = null;
+    // refreshAllCharts() already disposes+recreates ec within one visit; this additionally tears
+    // down the window resize listener when the page itself is navigated away from via htmx boost
+    // (window never gets swapped, so an unremoved listener would otherwise pile up forever).
+    window.SOBS.onElementCleanup(el, function () {
+      if (onChartResize) window.removeEventListener('resize', onChartResize);
+      ec.dispose();
+    });
     ec.showLoading({ text: 'Loading…', color: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-primary') : '#0d6efd', textColor: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-secondary-color') : '#adb5bd', maskColor: 'rgba(128,128,128,0.2)' });
 
     // Use ChartSpec render endpoint as the single chart model.
@@ -847,7 +855,8 @@
         ec.setOption({ title: { text: 'Network error', left: 'center', top: 'center', textStyle: { color: '#dc3545' } } });
       });
 
-    window.addEventListener('resize', function () { ec.resize(); });
+    onChartResize = function () { ec.resize(); };
+    window.addEventListener('resize', onChartResize);
   }
 
   CHART_DATA.forEach(renderChart);
@@ -860,6 +869,17 @@
   var refreshIntervalSelectMobile = document.getElementById('refreshIntervalSelectMobile');
   var dashboardRefreshModal = document.getElementById('dashboardRefreshModal');
   var refreshCountdown = document.getElementById('refreshCountdown');
+
+  // Auto-refresh keeps polling on a setInterval indefinitely — without this, navigating away via
+  // htmx boost (window itself is never swapped) leaves it running forever in the background,
+  // re-fetching every chart on a dashboard the user isn't even looking at anymore.
+  var mainContentEl = document.getElementById('mainContent');
+  if (mainContentEl) {
+    window.SOBS.onElementCleanup(mainContentEl, function () {
+      if (_refreshTimer) clearInterval(_refreshTimer);
+      if (_countdownTimer) clearInterval(_countdownTimer);
+    });
+  }
 
   function refreshAllCharts() {
     CHART_DATA.forEach(function (cfg) {
@@ -1838,6 +1858,11 @@
   /* ── Preview in modal ── */
   var previewBtn = document.getElementById('previewBtn');
   var previewChartInst = null;
+  if (mainContentEl) {
+    window.SOBS.onElementCleanup(mainContentEl, function () {
+      if (previewChartInst) { previewChartInst.dispose(); previewChartInst = null; }
+    });
+  }
   if (previewBtn) {
     previewBtn.addEventListener('click', function () {
       var modal = document.getElementById('addChartModal');
