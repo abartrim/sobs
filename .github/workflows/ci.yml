@@ -143,6 +143,32 @@ jobs:
         if: always()
         run: docker logs sobs || true
 
+  playwright-e2e:
+    name: Playwright E2E Suite
+    runs-on: sobs-runners
+    # Builds its own image from source — independent of go-build-test, so run in parallel.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and run the E2E suite (Dockerfile.e2e)
+        # --network=host: same reasoning as docker-go-smoke — the dind sidecar shares the runner
+        # pod's network namespace, so `go mod download` reaches the in-cluster Athens proxy.
+        # UNVERIFIED ON THIS CLUSTER: Dockerfile.e2e's FROM pulls mcr.microsoft.com/playwright
+        # (a different registry than docker.io, which has an in-cluster mirror configured via
+        # buildkitd-config-inline elsewhere in this file — see go-build-test/docker), and its own
+        # RUN steps curl go.dev and github.com directly for the Go toolchain and libchdb, same as
+        # Dockerfile.ci/Dockerfile.go already do. If the egress NetworkPolicy blocks any of
+        # those, this job will fail at the corresponding build step, not at the Playwright run
+        # itself — add a mirror/cache entry for mcr.microsoft.com (~/ci-infra/) the same way
+        # docker.io already has one, if that turns out to be needed.
+        run: |
+          docker build --network=host \
+            --build-arg GOPROXY="${GOPROXY}" \
+            --build-arg GOSUMDB="${GOSUMDB}" \
+            -f Dockerfile.e2e -t sobs-e2e:ci .
+
   rum-build:
     name: RUM JS Build & Type Check
     runs-on: sobs-runners
@@ -219,9 +245,10 @@ jobs:
     name: Build & Push Docker Image
     runs-on: sobs-runners
     # The published image is the Go server (the cutover artifact). Gate on the Go pipeline —
-    # go-build-test includes the golden-corpus replay (former parity job's role) — so a release
-    # only ships a build that passed both unit tests and the byte-parity replay.
-    needs: [go-build-test, docker-go-smoke]
+    # go-build-test includes the golden-corpus replay (former parity job's role) — plus the
+    # Playwright E2E suite, so a release only ships a build that passed unit tests, the
+    # byte-parity replay, and real-browser nav/table/form behavior.
+    needs: [go-build-test, docker-go-smoke, playwright-e2e]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
