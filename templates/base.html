@@ -714,7 +714,7 @@
 <body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
 <!-- Vendor libs load here, before the page content/scripts blocks below, so that a page's own
      bottom-of-page script can rely on bootstrap/htmx/etc. being available synchronously — same
-     guarantee full page reloads always gave when {% block scripts %} rendered after these tags.
+     guarantee full page reloads always gave when the scripts block used to render after these tags.
      (It now renders before them in document order so it lives inside #mainContent and
      re-executes on every boosted swap — see that block below — but these tags stay put here.) -->
 <script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
