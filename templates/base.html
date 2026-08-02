@@ -712,14 +712,26 @@
   {% block styles %}{% endblock %}
 </head>
 <body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
+<!-- Vendor libs load here, before the page content/scripts blocks below, so that a page's own
+     bottom-of-page script can rely on bootstrap/htmx/etc. being available synchronously — same
+     guarantee full page reloads always gave when {% block scripts %} rendered after these tags.
+     (It now renders before them in document order so it lives inside #mainContent and
+     re-executes on every boosted swap — see that block below — but these tags stay put here.) -->
+<script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
+<script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
+<script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
+<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
 <script>
-  // Defined this early (before the content below) so a page's own bottom-of-page script can call
-  // it: on the very first hard page load this file's bootstrap.bundle.min.js tag hasn't run yet,
-  // so code that constructs a bootstrap.Modal/Tooltip/etc. synchronously would find `bootstrap`
-  // undefined. On every later boosted revisit bootstrap is already loaded (the JS realm
-  // persists), so this runs the callback immediately in that case instead of waiting forever
-  // for a DOMContentLoaded that will never fire again.
+  // Also defined this early, before the content below: a page's own bottom-of-page script may
+  // call window.SOBS.onElementCleanup(...) or window.SOBS.whenBootstrapReady(...) synchronously
+  // at top level, so both need to exist before that code runs.
   window.SOBS = window.SOBS || {};
+
+  // whenBootstrapReady(fn): bootstrap.bundle.min.js above already makes `window.bootstrap`
+  // available synchronously to every page script, so this normally just runs `fn` immediately —
+  // kept as a defensive wrapper (falls back to a one-time DOMContentLoaded wait) in case that
+  // ordering ever changes again.
   window.SOBS.whenBootstrapReady = function (fn) {
     if (window.bootstrap) {
       fn();
@@ -727,6 +739,33 @@
       document.addEventListener('DOMContentLoaded', fn, { once: true });
     }
   };
+
+  // onElementCleanup(el, fn): registers teardown (close EventSource, clearInterval, dispose a
+  // chart, disconnect a ResizeObserver) that fires once, right before htmx removes `el` from the
+  // document on a boosted swap-away — see the htmx:beforeCleanupElement listener below, which
+  // reads this same registry once htmx.min.js (loaded above) is active.
+  var sobsCleanupRegistry = new WeakMap();
+  window.SOBS.onElementCleanup = function (el, fn) {
+    if (!el || typeof fn !== 'function') return;
+    var fns = sobsCleanupRegistry.get(el);
+    if (!fns) {
+      fns = [];
+      sobsCleanupRegistry.set(el, fns);
+    }
+    fns.push(fn);
+  };
+  document.body.addEventListener('htmx:beforeCleanupElement', function (evt) {
+    var fns = sobsCleanupRegistry.get(evt.target);
+    if (!fns) return;
+    sobsCleanupRegistry.delete(evt.target);
+    fns.forEach(function (fn) {
+      try {
+        fn();
+      } catch (_err) {
+        // A page's own teardown failing shouldn't block htmx from removing the element.
+      }
+    });
+  });
 </script>
 <div id="sbBoostBar"></div>
 <!-- Overlay backdrop for hamburger sidebar -->
@@ -1018,11 +1057,6 @@
 
 <div class="toast-container position-fixed bottom-0 end-0 p-3" id="sobsNotifyToastContainer" style="z-index:1200;"></div>
 
-<script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
-<script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
-<script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
-<script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
-<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
 <script>
 (function () {
   /* ===== htmx-driven SPA glue =====
@@ -1030,10 +1064,9 @@
      <form method="get|post"> into a boosted request that swaps #mainContent instead of doing a
      full page navigation. This block wires up the pieces boost alone doesn't handle: falling back
      to a real navigation when the response has no #mainContent to select (disabled-feature pages,
-     errors, 404s), keeping the sidebar's "active" highlight in sync with the URL after a swap
-     (the sidebar itself lives outside the swapped region), and a cleanup registry pages can use to
-     tear down anything that would otherwise leak across repeated boosted visits (EventSource,
-     setInterval, chart instances, ResizeObservers) since the JS realm now survives navigation. */
+     errors, 404s), and keeping the sidebar's "active" highlight in sync with the URL after a swap
+     (the sidebar itself lives outside the swapped region). window.SOBS.onElementCleanup and
+     .whenBootstrapReady are defined earlier, right after <body> opens — see there for why. */
 
   // ---- Fallback to a real navigation when a boosted response has nothing to select ----
   document.body.addEventListener('htmx:beforeSwap', function (evt) {
@@ -1062,35 +1095,6 @@
     });
   }
   document.body.addEventListener('htmx:afterSettle', syncActiveNavLinks);
-
-  // ---- Cleanup registry: pages register teardown for anything tied to their DOM ----
-  // Usage from a page's own bottom-of-page script block: window.SOBS.onElementCleanup(el, function () { ... }).
-  // Fires once, right before htmx removes `el` from the document (including on a boosted swap-away).
-  window.SOBS = window.SOBS || {};
-  var cleanupRegistry = new WeakMap();
-
-  window.SOBS.onElementCleanup = function (el, fn) {
-    if (!el || typeof fn !== 'function') return;
-    var fns = cleanupRegistry.get(el);
-    if (!fns) {
-      fns = [];
-      cleanupRegistry.set(el, fns);
-    }
-    fns.push(fn);
-  };
-
-  document.body.addEventListener('htmx:beforeCleanupElement', function (evt) {
-    var fns = cleanupRegistry.get(evt.target);
-    if (!fns) return;
-    cleanupRegistry.delete(evt.target);
-    fns.forEach(function (fn) {
-      try {
-        fn();
-      } catch (_err) {
-        // A page's own teardown failing shouldn't block htmx from removing the element.
-      }
-    });
-  });
 })();
 </script>
 
