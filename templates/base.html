@@ -685,10 +685,34 @@
       color: var(--bs-info);
       background-color: color-mix(in srgb, var(--bs-info) 12%, transparent);
     }
+    /* ===== htmx boost loading indicator ===== */
+    #sbBoostBar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--bs-primary);
+      z-index: 1200;
+      opacity: 0;
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: opacity 0.15s ease;
+    }
+    #sbBoostBar.htmx-request {
+      opacity: 1;
+      animation: sbBoostBarGrow 1.2s ease-out infinite;
+    }
+    @keyframes sbBoostBarGrow {
+      0%   { transform: scaleX(0); }
+      60%  { transform: scaleX(0.75); }
+      100% { transform: scaleX(0.92); }
+    }
   </style>
   {% block styles %}{% endblock %}
 </head>
-<body>
+<body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
+<div id="sbBoostBar"></div>
 <!-- Overlay backdrop for hamburger sidebar -->
 <div id="sbBackdrop" class="sb-backdrop"></div>
 <!-- Topbar: visible only in hamburger/small-screen mode -->
@@ -858,7 +882,7 @@
   </nav>
 
   <!-- Main -->
-  <div class="main-content flex-grow-1 p-4">
+  <div id="mainContent" class="main-content flex-grow-1 p-4">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
@@ -868,6 +892,7 @@
       {% endfor %}
     {% endwith %}
     {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
   </div>
 </div>
 
@@ -981,6 +1006,77 @@
 <script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
 <script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
+<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
+<script>
+(function () {
+  /* ===== htmx-driven SPA glue =====
+     hx-boost on <body> (see the opening tag) turns every same-origin <a href> and
+     <form method="get|post"> into a boosted request that swaps #mainContent instead of doing a
+     full page navigation. This block wires up the pieces boost alone doesn't handle: falling back
+     to a real navigation when the response has no #mainContent to select (disabled-feature pages,
+     errors, 404s), keeping the sidebar's "active" highlight in sync with the URL after a swap
+     (the sidebar itself lives outside the swapped region), and a cleanup registry pages can use to
+     tear down anything that would otherwise leak across repeated boosted visits (EventSource,
+     setInterval, chart instances, ResizeObservers) since the JS realm now survives navigation. */
+
+  // ---- Fallback to a real navigation when a boosted response has nothing to select ----
+  document.body.addEventListener('htmx:beforeSwap', function (evt) {
+    var xhr = evt.detail.xhr;
+    var status = xhr ? xhr.status : 0;
+    var hasContent = !!(evt.detail.serverResponse && /id=["']mainContent["']/.test(evt.detail.serverResponse));
+    if (status < 200 || status >= 300 || !hasContent) {
+      evt.detail.shouldSwap = false;
+      evt.detail.isError = false;
+      var target = (xhr && xhr.responseURL) ? xhr.responseURL : window.location.href;
+      window.location.href = target;
+    }
+  });
+
+  // ---- Keep the sidebar/topbar "active" highlight in sync after a boosted nav ----
+  function syncActiveNavLinks() {
+    var path = window.location.pathname;
+    document.querySelectorAll('.sidebar .nav-link[href], .sb-topbar [href]').forEach(function (link) {
+      var linkPath;
+      try {
+        linkPath = new URL(link.getAttribute('href'), window.location.origin).pathname;
+      } catch (_err) {
+        return;
+      }
+      link.classList.toggle('active', linkPath === path);
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', syncActiveNavLinks);
+
+  // ---- Cleanup registry: pages register teardown for anything tied to their DOM ----
+  // Usage from a page's own bottom-of-page script block: window.SOBS.onElementCleanup(el, function () { ... }).
+  // Fires once, right before htmx removes `el` from the document (including on a boosted swap-away).
+  window.SOBS = window.SOBS || {};
+  var cleanupRegistry = new WeakMap();
+
+  window.SOBS.onElementCleanup = function (el, fn) {
+    if (!el || typeof fn !== 'function') return;
+    var fns = cleanupRegistry.get(el);
+    if (!fns) {
+      fns = [];
+      cleanupRegistry.set(el, fns);
+    }
+    fns.push(fn);
+  };
+
+  document.body.addEventListener('htmx:beforeCleanupElement', function (evt) {
+    var fns = cleanupRegistry.get(evt.target);
+    if (!fns) return;
+    cleanupRegistry.delete(evt.target);
+    fns.forEach(function (fn) {
+      try {
+        fn();
+      } catch (_err) {
+        // A page's own teardown failing shouldn't block htmx from removing the element.
+      }
+    });
+  });
+})();
+</script>
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
@@ -1336,11 +1432,22 @@
   window.SOBS.notify = showNotify;
   window.sobsNotify = showNotify;
 
+  // A form under an hx-boosted ancestor is intercepted by htmx before it ever reaches a plain
+  // 'submit' listener's preventDefault() — htmx decides whether to issue its request via the
+  // htmx:confirm event below, not by checking event.defaultPrevented. This listener is the
+  // fallback for forms explicitly opted OUT of boost (hx-boost="false", e.g. the handful of pages
+  // with their own fetch()-based submit handling) and for any non-JS/non-htmx submission path.
+  function isHtmxBoosted(form) {
+    var ancestor = form.closest('[hx-boost]');
+    return !!ancestor && ancestor.getAttribute('hx-boost') !== 'false';
+  }
+
   document.addEventListener('submit', function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
     var msg = form.getAttribute('data-confirm-message');
     if (!msg) return;
+    if (isHtmxBoosted(form)) return;
     if (form.dataset.confirming === '1') {
       form.dataset.confirming = '0';
       return;
@@ -1375,9 +1482,28 @@
       }
     });
   }, true);
+
+  // htmx-boosted counterpart of the guard above: htmx dispatches a cancelable htmx:confirm event
+  // immediately before issuing ANY request (boosted or hx-*). Pausing it here and calling
+  // issueRequest(true) only after the user confirms is htmx's documented hook for this — a plain
+  // preventDefault() on the native 'submit' event does NOT stop htmx from proceeding.
+  document.body.addEventListener('htmx:confirm', function (event) {
+    var form = event.target && event.target.closest && event.target.closest('form[data-confirm-message]');
+    if (!form || !isHtmxBoosted(form)) return;
+    event.preventDefault();
+    showConfirm({
+      title: form.getAttribute('data-confirm-title') || 'Confirm Action',
+      message: form.getAttribute('data-confirm-message'),
+      okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
+      okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
+    }).then(function (confirmed) {
+      if (confirmed) {
+        event.detail.issueRequest(true);
+      }
+    });
+  });
 })();
 </script>
-{% block scripts %}{% endblock %}
 <script>
 (function () {
   /* ===== Theme management ===== */
