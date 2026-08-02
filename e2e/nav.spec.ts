@@ -3,12 +3,8 @@ import { markNoFullReload, expectNoFullReload, expectSingleMainContent, expectAc
 
 // Clicking through the sidebar should swap #mainContent via htmx boost, never do a full
 // page reload, and keep the sidebar's "active" highlight and <title> in sync with the URL.
-//
-// Starts from /logs, not "/" (Summary): the summary page has a known, pre-existing,
-// unrelated hang in its chdb query (reproduces even against an empty database, with zero
-// concurrency, independent of any htmx change — see the filed follow-up task). None of
-// these specs navigate to "/" until that's fixed.
 const PAGES = [
+  { href: '/', title: 'Summary' },
   { href: '/logs', title: 'Logs' },
   { href: '/traces', title: 'Traces' },
   { href: '/errors', title: 'Errors' },

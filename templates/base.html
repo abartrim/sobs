@@ -766,6 +766,70 @@
       }
     });
   });
+
+  // Also defined this early: errors.html/traces.html call this synchronously at the top
+  // level of their own bottom-of-page scripts (to wire up their Saved Reports dropdown),
+  // same reasoning as whenBootstrapReady/onElementCleanup above.
+  window.SOBS.initSavedReportsDropdown = function initSavedReportsDropdown(options) {
+    var cfg = options || {};
+    var groupId = String(cfg.groupId || '').trim();
+    var saveButtonId = String(cfg.saveButtonId || '').trim();
+    var pageType = String(cfg.pageType || '').trim();
+    var pageBaseUrl = String(cfg.pageBaseUrl || '').trim();
+    var listReportsUrl = String(cfg.listReportsUrl || '').trim();
+    var manageReportsUrl = String(cfg.manageReportsUrl || '').trim();
+    var formSelector = String(cfg.formSelector || 'form[method="get"]');
+    if (!groupId || !saveButtonId || !pageType || !pageBaseUrl || !listReportsUrl || !manageReportsUrl) return;
+
+    var group = document.getElementById(groupId);
+    var saveBtn = document.getElementById(saveButtonId);
+    if (!group || !saveBtn) return;
+    var menu = group.querySelector('ul');
+    if (!menu) return;
+
+    var escHtml = function (value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    group.addEventListener('show.bs.dropdown', function () {
+      fetch(listReportsUrl + '?page_type=' + encodeURIComponent(pageType))
+        .then(function (r) { return r.json(); })
+        .then(function (reports) {
+          if (!reports.length) {
+            menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+            return;
+          }
+          menu.innerHTML = reports.map(function (rep) {
+            var params = new URLSearchParams(rep.filters);
+            var url = pageBaseUrl + '?' + params.toString();
+            return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description) + '">' + escHtml(rep.name) + '</a></li>';
+          }).join('') +
+            '<li><hr class="dropdown-divider my-1"></li>' +
+            '<li><a class="dropdown-item small text-secondary" href="' + manageReportsUrl + '"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
+        })
+        .catch(function () {
+          menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
+        });
+    });
+
+    saveBtn.addEventListener('click', function () {
+      var form = document.querySelector(formSelector);
+      if (!form) return;
+      var data = new FormData(form);
+      var filters = {};
+      for (var pair of data.entries()) {
+        if (pair[1]) filters[pair[0]] = pair[1];
+      }
+      if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+        window.sobsReportSaveModal.open({ pageType: pageType, filters: filters });
+      }
+    });
+  };
 </script>
 <div id="sbBoostBar"></div>
 <!-- Overlay backdrop for hamburger sidebar -->
@@ -1218,67 +1282,6 @@
 <script>
 (function () {
   window.SOBS = window.SOBS || {};
-
-  window.SOBS.initSavedReportsDropdown = function initSavedReportsDropdown(options) {
-    var cfg = options || {};
-    var groupId = String(cfg.groupId || '').trim();
-    var saveButtonId = String(cfg.saveButtonId || '').trim();
-    var pageType = String(cfg.pageType || '').trim();
-    var pageBaseUrl = String(cfg.pageBaseUrl || '').trim();
-    var listReportsUrl = String(cfg.listReportsUrl || '').trim();
-    var manageReportsUrl = String(cfg.manageReportsUrl || '').trim();
-    var formSelector = String(cfg.formSelector || 'form[method="get"]');
-    if (!groupId || !saveButtonId || !pageType || !pageBaseUrl || !listReportsUrl || !manageReportsUrl) return;
-
-    var group = document.getElementById(groupId);
-    var saveBtn = document.getElementById(saveButtonId);
-    if (!group || !saveBtn) return;
-    var menu = group.querySelector('ul');
-    if (!menu) return;
-
-    var escHtml = function (value) {
-      return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    };
-
-    group.addEventListener('show.bs.dropdown', function () {
-      fetch(listReportsUrl + '?page_type=' + encodeURIComponent(pageType))
-        .then(function (r) { return r.json(); })
-        .then(function (reports) {
-          if (!reports.length) {
-            menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
-            return;
-          }
-          menu.innerHTML = reports.map(function (rep) {
-            var params = new URLSearchParams(rep.filters);
-            var url = pageBaseUrl + '?' + params.toString();
-            return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description) + '">' + escHtml(rep.name) + '</a></li>';
-          }).join('') +
-            '<li><hr class="dropdown-divider my-1"></li>' +
-            '<li><a class="dropdown-item small text-secondary" href="' + manageReportsUrl + '"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
-        })
-        .catch(function () {
-          menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
-        });
-    });
-
-    saveBtn.addEventListener('click', function () {
-      var form = document.querySelector(formSelector);
-      if (!form) return;
-      var data = new FormData(form);
-      var filters = {};
-      for (var pair of data.entries()) {
-        if (pair[1]) filters[pair[0]] = pair[1];
-      }
-      if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
-        window.sobsReportSaveModal.open({ pageType: pageType, filters: filters });
-      }
-    });
-  };
 
   window.SOBS.resolveUrl = function (value) {
     var raw = String(value == null ? '' : value).trim();

@@ -23,16 +23,20 @@ test('the cron builder stays interactive after a second boosted visit', async ({
 
   // Leave (any other boosted page) and come back — the same JS realm handles this second
   // render. The sidebar only links to the bare /settings index (not this sub-page directly),
-  // so the return hop goes through htmx.ajax() — the same call hx-boost makes internally for
-  // a real link click — rather than a visible link.
+  // so the return hop is simulated with a synthetic boosted link rather than a visible one:
+  // a bare htmx.ajax() call has no source element to inherit hx-push-url from body's
+  // hx-boost, so it swaps #mainContent but never updates the URL — inserting a real <a
+  // href> and running it through htmx.process()+.click() (what hx-boost itself does to
+  // every rendered link) gets the same push-url behavior a visible link click would.
   await page.locator('.sidebar .nav-link[href="/logs"]').click();
   await page.waitForLoadState('networkidle');
   await page.evaluate(() => {
-    (window as any).htmx.ajax('GET', '/settings/data-management', {
-      target: '#mainContent',
-      select: '#mainContent',
-      swap: 'outerHTML',
-    });
+    const a = document.createElement('a');
+    a.href = '/settings/data-management';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    (window as any).htmx.process(a);
+    a.click();
   });
   await page.waitForURL(/\/settings\/data-management$/);
   await page.waitForLoadState('networkidle');

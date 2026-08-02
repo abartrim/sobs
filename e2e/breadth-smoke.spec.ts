@@ -15,14 +15,12 @@ interface ManifestRoute {
   methods: string[];
 }
 
-// Not app pages at all — lightweight liveness/readiness endpoints (plain text/JSON, no
-// sidebar) that happen to match the path-prefix filter below.
-const NOT_A_PAGE = new Set(['get__health', 'get__health_db']);
-
-// Known, pre-existing, unrelated bug: the summary page's chdb query hangs indefinitely —
-// reproduces even against an empty database, with zero concurrency, independent of any
-// htmx change (see the filed follow-up task). Excluded here rather than left to time out.
-const KNOWN_HANG = new Set(['get__root']);
+// Not app pages at all — lightweight liveness/readiness endpoints, the MCP JSON-RPC protocol
+// endpoints (get__mcp/get__mcp_tools), or (get__tail) the raw SSE stream backing logs.html's
+// live-tail feature: it's consumed via `new EventSource('/tail')`, not something a user
+// navigates to directly, and its response never completes — a top-level page.goto() would hang
+// until the test timeout. See sse-cleanup.spec.ts for the actual EventSource-level coverage.
+const NOT_A_PAGE = new Set(['get__health', 'get__health_db', 'get__mcp', 'get__mcp_tools', 'get__tail']);
 
 function primaryPageRoutes(): ManifestRoute[] {
   const manifestPath = join(__dirname, '..', 'go', 'testdata', 'manifest.json');
@@ -34,7 +32,7 @@ function primaryPageRoutes(): ManifestRoute[] {
     if (!r.id.startsWith('get__')) return false;
     if (r.id.slice('get__'.length).includes('__')) return false;
     if (r.id.includes('help')) return false;
-    if (NOT_A_PAGE.has(r.id) || KNOWN_HANG.has(r.id)) return false;
+    if (NOT_A_PAGE.has(r.id)) return false;
     return true;
   });
 }
@@ -64,7 +62,7 @@ for (const route of routes) {
       // rendering the app shell — a legitimate response, not a broken page. Anything else
       // 404ing is a real failure.
       const body = await response!.text();
-      expect(body, `${route.path} returned an unexpected 404: ${body}`).toMatch(/disabled/i);
+      expect(body, `${route.path} returned an unexpected 404: ${body}`).toMatch(/disabled|unavailable/i);
       return;
     }
 

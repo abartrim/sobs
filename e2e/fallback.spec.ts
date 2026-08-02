@@ -11,8 +11,6 @@ import { test, expect } from '@playwright/test';
 test('a boosted request to a disabled route falls back to a real navigation, not a blank page', async ({
   page,
 }) => {
-  // /logs, not "/" (Summary) — the summary page has a known, pre-existing, unrelated chdb
-  // query hang (reproduces even against an empty database; see the filed follow-up task).
   await page.goto('/logs');
   await expect(page.locator('#mainContent')).toHaveCount(1);
 
