@@ -158,7 +158,7 @@
       </a>
     </div>
     <a href="{{ url_for('export_ai_training', service=service, model=model, operation=operation, from_ts=from_ts, to_ts=to_ts) }}"
-       class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL">
+       class="btn btn-sm btn-outline-secondary" title="Export training data as JSONL" hx-boost="false">
       <i class="bi bi-download me-1"></i><span class="ai-btn-label">Export JSONL</span>
     </a>
     <button id="liveTailBtn" class="btn btn-sm btn-outline-success" onclick="toggleLiveTail()"

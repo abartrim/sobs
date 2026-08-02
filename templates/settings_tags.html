@@ -31,7 +31,7 @@
     <div id="autoTagsCollapse" class="accordion-collapse collapse" aria-labelledby="autoTagsHeading" data-bs-parent="#tagRulesAutoAccordion">
       <div class="accordion-body">
         <p class="small text-secondary mb-3">Generate baseline tag rules from recent logs, traces, errors, AI spans, and RUM events. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
-        <form method="post" action="{{ url_for('auto_tag_rules') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('auto_tag_rules') }}" class="row g-2 align-items-end" hx-boost="false">
           <div class="col-md-2">
             <label class="form-label small text-secondary">Window (hours)</label>
             <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
