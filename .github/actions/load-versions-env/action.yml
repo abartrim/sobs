@@ -1,9 +1,9 @@
 name: Load pinned build versions
 description: >-
   Load GO_VERSION/CHDB_VERSION from versions.env (repo root) into the job's environment as
-  plain env vars, so later steps can reference them via ${GO_VERSION} (shell) or
-  ${{ env.GO_VERSION }} (expressions) — the single place every job in ci.yml gets these
-  values from, instead of each job re-deriving them.
+  plain env vars, so later steps can reference them via shell interpolation or the env
+  expression context — the single place every job in ci.yml gets these values from,
+  instead of each job re-deriving them.
 runs:
   using: composite
   steps:
