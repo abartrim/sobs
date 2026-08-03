@@ -106,7 +106,7 @@
           <a href="{{ url_for('auto_metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Auto Rules Help" aria-label="Auto Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
         </div>
         <p class="small text-secondary mb-3">Generate baseline threshold rules from recent derived-signal history. Existing rules are skipped automatically. Create is capped at 200 rules per run.</p>
-        <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('auto_metrics_rules') }}" class="row g-2 align-items-end" hx-boost="false">
           <div class="col-md-2">
             <label class="form-label small text-secondary">Window (hours)</label>
             <input type="number" min="1" max="168" name="hours" class="form-control form-control-sm" value="{{ auto_summary.hours if auto_summary else 24 }}">
@@ -244,7 +244,7 @@
           <a href="{{ url_for('auto_metrics_rules_help') }}" target="_blank" class="link-secondary text-decoration-none" title="Auto Rules Help" aria-label="Auto Rules Help" style="opacity:.75; font-size:1.1rem; line-height:1;"><i class="bi bi-question-circle"></i></a>
         </div>
         <p class="small text-secondary mb-3">Build a derived-signal dashboard directly from your active rules. Existing chart titles are skipped automatically.</p>
-        <form id="autoDashboardForm" method="post" action="{{ url_for('auto_metrics_rules_dashboard') }}" class="row g-2 align-items-end">
+        <form id="autoDashboardForm" method="post" action="{{ url_for('auto_metrics_rules_dashboard') }}" class="row g-2 align-items-end" hx-boost="false">
           <div class="col-md-3">
             <label class="form-label small text-secondary">Dashboard Name</label>
             <input type="text" name="dashboard_name" class="form-control form-control-sm" value="{{ auto_dashboard_summary.dashboard_name if auto_dashboard_summary else 'Auto Metric Rules Dashboard' }}">
@@ -745,7 +745,15 @@
       if (confirmed) {
         var form = btn.closest('form');
         if (form) {
-          form.submit();
+          // form.submit() never dispatches a 'submit' event, so htmx's boost listener (which
+          // relies on intercepting 'submit') would never see it — requestSubmit() dispatches a
+          // real submit event and keeps this delete inside the boosted flow like every other
+          // action on this page (submit() kept only as a fallback for older browsers).
+          if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit();
+          } else {
+            form.submit();
+          }
         }
       }
     });
@@ -1046,10 +1054,23 @@
     });
     tourModalEl.addEventListener('show.bs.modal', syncTourModalBounds);
 
-    window.addEventListener('resize', syncTourModalBounds);
+    // Both the resize listener and the sidebar observer are bound to targets (`window`, the
+    // persistent sidebar) that live outside #mainContent and are never swapped away by htmx —
+    // tie their teardown to tourModalEl (which IS swapped away) so they don't accumulate one
+    // more permanent instance on every boosted revisit to this page.
+    if (window.SOBS && window.SOBS.autoCleanupListener) {
+      window.SOBS.autoCleanupListener(tourModalEl, window, 'resize', syncTourModalBounds);
+    } else {
+      window.addEventListener('resize', syncTourModalBounds);
+    }
     if (sidebarEl && window.MutationObserver) {
       var sidebarObserver = new MutationObserver(syncTourModalBounds);
       sidebarObserver.observe(sidebarEl, { attributes: true, attributeFilter: ['class'] });
+      if (window.SOBS && window.SOBS.onElementCleanup) {
+        window.SOBS.onElementCleanup(tourModalEl, function () {
+          sidebarObserver.disconnect();
+        });
+      }
     }
 
     syncTourModalBounds();

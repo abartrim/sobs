@@ -212,6 +212,10 @@ file:/tmp/
 # Integration test screenshots (uploaded as CI artifacts)
 tests/screenshots/
 
+# Playwright E2E suite (e2e/) output
+/playwright-report/
+/test-results/
+
 # Pinned libchdb native library for chdb-go (Phase 0) — 326MB, downloaded not committed
 /.libchdb/
 # macOS arm64 libchdb (chdb-core v26.5.0) for running the parity harness natively on a Mac

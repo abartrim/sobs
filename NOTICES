@@ -45,6 +45,7 @@ TABLE OF CONTENTS
     2.2  Bootstrap Icons         — MIT
     2.3  Apache ECharts          — Apache-2.0
     2.4  zrender                 — BSD-3-Clause  (bundled inside echarts.min.js)
+    2.5  htmx                    — 0BSD
 
  3. JavaScript / Front-End Assets (loaded from CDN at runtime)
     3.1  markdown-it             — MIT
@@ -1007,6 +1008,29 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+
+-------------------------------------------------------------------------------
+
+2.5 htmx
+--------
+Version: 2.0.10
+License: 0BSD
+Homepage: https://htmx.org/
+Repository: https://github.com/bigskysoftware/htmx
+
+Zero-Clause BSD
+=============
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE
+FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY
+DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 -------------------------------------------------------------------------------
 

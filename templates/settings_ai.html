@@ -43,7 +43,13 @@
 {% endset %}
 {{ render_page_header('AI & Agent Configuration', icon_class='bi bi-robot', icon_text_class='text-primary', actions_html=settings_ai_header_actions) }}
 
-<form method="post" action="{{ url_for('save_ai_settings') }}">
+<!-- hx-boost="false": save_ai_settings' invalid-JSON validation path (model_pricing /
+     model_pricing_confirmed) responds with a bare 400 JSON body instead of a redirect, matching
+     app.py's own behavior byte-for-byte (see the Go handler's comment) — under boost, that
+     response has no id="mainContent", so the htmx:beforeSwap fallback would silently discard it
+     and redirect to a fresh GET, losing both the error and the user's edits with zero feedback.
+     Opting out preserves the pre-htmx behavior (the browser shows the actual error) instead. -->
+<form method="post" action="{{ url_for('save_ai_settings') }}" hx-boost="false">
   <!-- LLM Endpoint -->
   <div class="card border-secondary mb-3">
     <div class="card-header d-flex align-items-center gap-2">

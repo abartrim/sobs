@@ -224,7 +224,14 @@
       dropdown.addEventListener('show.bs.dropdown', updateMenuWidth);
       dropdown.addEventListener('shown.bs.dropdown', updateMenuWidth);
       btn.addEventListener('click', updateMenuWidth);
-      window.addEventListener('resize', updateMenuWidth);
+      // `dropdown` is swapped away by htmx on boosted nav; `window` isn't — tie teardown to it
+      // so this filter widget (used on many pages, often several per page) doesn't leave a
+      // permanent resize listener behind on every visit.
+      if (window.SOBS && window.SOBS.autoCleanupListener) {
+        window.SOBS.autoCleanupListener(dropdown, window, 'resize', updateMenuWidth);
+      } else {
+        window.addEventListener('resize', updateMenuWidth);
+      }
     }
 
     if (clearBtn) {

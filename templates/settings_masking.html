@@ -192,7 +192,7 @@
         <h6 class="mb-0"><i class="bi bi-regex me-2 text-info"></i>Add Custom Regex Pattern</h6>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end" id="maskingPatternForm">
+        <form method="post" action="{{ url_for('add_masking_pattern') }}" class="row g-2 align-items-end" id="maskingPatternForm" hx-boost="false">
           <div class="col-sm-9">
             <label class="form-label small text-secondary">Regex pattern</label>
             <input type="text" name="pattern" id="maskingPatternInput" class="form-control form-control-sm font-monospace" placeholder="e.g. (?i)customer[_-]?id\s*[=:]\s*\w+" required>
