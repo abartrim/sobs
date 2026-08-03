@@ -245,6 +245,7 @@
 
 {% block scripts %}
 <script>
+(function () {
 var librariesApiUrl = {{ url_for('api_enrichment_libraries') | tojson }};
 var repoHealthApiUrl = {{ url_for('api_enrichment_github_repo_health') | tojson }};
 var cveScanUrl = {{ url_for('api_cve_scan') | tojson }};
@@ -288,6 +289,7 @@ function triggerCveScan() {
       if (resultsEl) resultsEl.innerHTML = '<div class="alert alert-danger small py-2">Request failed: '+escHtml(String(err))+'</div>';
     });
 }
+window.triggerCveScan = triggerCveScan;
 
 function initDispositionControls() {
   var saveButtons = document.querySelectorAll('.cve-disposition-save');
@@ -497,5 +499,6 @@ initDispositionControls();
 initCveLibrariesTable();
 loadRepoHealthSummary();
 function escHtml(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+})();
 </script>
 {% endblock %}

@@ -360,6 +360,17 @@
   var _countdownTimer = null;
   var _remaining = 0;
 
+  // apply() below calls location.reload() on a timer — left running after navigating away via
+  // htmx boost (window is never swapped), it would eventually force-reload whatever OTHER page
+  // the user has since navigated to, not summary. Clear it when this page's content is swapped away.
+  var summaryMainContentEl = document.getElementById('mainContent');
+  if (summaryMainContentEl) {
+    window.SOBS.onElementCleanup(summaryMainContentEl, function () {
+      if (_refreshTimer) clearInterval(_refreshTimer);
+      if (_countdownTimer) clearInterval(_countdownTimer);
+    });
+  }
+
   function _tick() {
     _remaining -= 1;
     if (_remaining <= 0) _remaining = parseInt(select.value, 10);

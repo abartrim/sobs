@@ -685,10 +685,179 @@
       color: var(--bs-info);
       background-color: color-mix(in srgb, var(--bs-info) 12%, transparent);
     }
+    /* ===== htmx boost loading indicator ===== */
+    #sbBoostBar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--bs-primary);
+      z-index: 1200;
+      opacity: 0;
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: opacity 0.15s ease;
+    }
+    #sbBoostBar.htmx-request {
+      opacity: 1;
+      animation: sbBoostBarGrow 1.2s ease-out infinite;
+    }
+    @keyframes sbBoostBarGrow {
+      0%   { transform: scaleX(0); }
+      60%  { transform: scaleX(0.75); }
+      100% { transform: scaleX(0.92); }
+    }
   </style>
   {% block styles %}{% endblock %}
 </head>
-<body>
+<!-- Every same-origin <a href> and <form> under this <body> is boosted by default. A form or
+     link MUST set hx-boost="false" if it falls into any of these categories — each existing
+     opt-out below exists for one of these reasons, not a one-off judgment call:
+       1. Its POST handler can respond with anything other than a redirect to a full page
+          containing id="mainContent" on EVERY path, including validation failures (the default
+          flashRedirect-on-every-branch pattern is boost-safe; a handler that instead renders/
+          errors directly with a non-2xx status or a JSON/partial body is not — the
+          htmx:beforeSwap fallback below will silently discard that response's content).
+       2. It triggers a file download via a `Content-Disposition: attachment` response header
+          (a `download` attribute alone is NOT sufficient — htmx does not special-case it).
+       3. It has its own JS 'submit'/'click' handler that expects to fully own the request
+          (client-side validation, a custom fetch() call, a confirm flow other than the shared
+          data-confirm-message one below) rather than letting htmx issue the request.
+     There is no automated check for this yet — when adding a new form/link, check it against
+     this list by hand. -->
+<body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
+<!-- Vendor libs load here, before the page content/scripts blocks below, so that a page's own
+     bottom-of-page script can rely on bootstrap/htmx/etc. being available synchronously — same
+     guarantee full page reloads always gave when the scripts block used to render after these tags.
+     (It now renders before them in document order so it lives inside #mainContent and
+     re-executes on every boosted swap — see that block below — but these tags stay put here.) -->
+<script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
+<script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
+<script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
+<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
+<script>
+  // Also defined this early, before the content below: a page's own bottom-of-page script may
+  // call window.SOBS.onElementCleanup(...) or window.SOBS.whenBootstrapReady(...) synchronously
+  // at top level, so both need to exist before that code runs.
+  window.SOBS = window.SOBS || {};
+
+  // whenBootstrapReady(fn): bootstrap.bundle.min.js above already makes `window.bootstrap`
+  // available synchronously to every page script, so this normally just runs `fn` immediately —
+  // kept as a defensive wrapper (falls back to a one-time DOMContentLoaded wait) in case that
+  // ordering ever changes again.
+  window.SOBS.whenBootstrapReady = function (fn) {
+    if (window.bootstrap) {
+      fn();
+    } else {
+      document.addEventListener('DOMContentLoaded', fn, { once: true });
+    }
+  };
+
+  // onElementCleanup(el, fn): registers teardown (close EventSource, clearInterval, dispose a
+  // chart, disconnect a ResizeObserver) that fires once, right before htmx removes `el` from the
+  // document on a boosted swap-away — see the htmx:beforeCleanupElement listener below, which
+  // reads this same registry once htmx.min.js (loaded above) is active.
+  var sobsCleanupRegistry = new WeakMap();
+  window.SOBS.onElementCleanup = function (el, fn) {
+    if (!el || typeof fn !== 'function') return;
+    var fns = sobsCleanupRegistry.get(el);
+    if (!fns) {
+      fns = [];
+      sobsCleanupRegistry.set(el, fns);
+    }
+    fns.push(fn);
+  };
+  document.body.addEventListener('htmx:beforeCleanupElement', function (evt) {
+    var fns = sobsCleanupRegistry.get(evt.target);
+    if (!fns) return;
+    sobsCleanupRegistry.delete(evt.target);
+    fns.forEach(function (fn) {
+      try {
+        fn();
+      } catch (_err) {
+        // A page's own teardown failing shouldn't block htmx from removing the element.
+      }
+    });
+  });
+
+  // autoCleanupListener(el, target, eventName, handler): the recurring shape of onElementCleanup
+  // usage for a page-level listener bound to `window` or `document` (resize, scroll, click,
+  // beforeunload, ...) — those targets are never swapped away by htmx, so the listener has to be
+  // removed explicitly via onElementCleanup(el, ...) rather than relying on the DOM discarding it.
+  window.SOBS.autoCleanupListener = function (el, target, eventName, handler) {
+    target.addEventListener(eventName, handler);
+    window.SOBS.onElementCleanup(el, function () {
+      target.removeEventListener(eventName, handler);
+    });
+  };
+
+  // Also defined this early: errors.html/traces.html call this synchronously at the top
+  // level of their own bottom-of-page scripts (to wire up their Saved Reports dropdown),
+  // same reasoning as whenBootstrapReady/onElementCleanup above.
+  window.SOBS.initSavedReportsDropdown = function initSavedReportsDropdown(options) {
+    var cfg = options || {};
+    var groupId = String(cfg.groupId || '').trim();
+    var saveButtonId = String(cfg.saveButtonId || '').trim();
+    var pageType = String(cfg.pageType || '').trim();
+    var pageBaseUrl = String(cfg.pageBaseUrl || '').trim();
+    var listReportsUrl = String(cfg.listReportsUrl || '').trim();
+    var manageReportsUrl = String(cfg.manageReportsUrl || '').trim();
+    var formSelector = String(cfg.formSelector || 'form[method="get"]');
+    if (!groupId || !saveButtonId || !pageType || !pageBaseUrl || !listReportsUrl || !manageReportsUrl) return;
+
+    var group = document.getElementById(groupId);
+    var saveBtn = document.getElementById(saveButtonId);
+    if (!group || !saveBtn) return;
+    var menu = group.querySelector('ul');
+    if (!menu) return;
+
+    var escHtml = function (value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    group.addEventListener('show.bs.dropdown', function () {
+      fetch(listReportsUrl + '?page_type=' + encodeURIComponent(pageType))
+        .then(function (r) { return r.json(); })
+        .then(function (reports) {
+          if (!reports.length) {
+            menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
+            return;
+          }
+          menu.innerHTML = reports.map(function (rep) {
+            var params = new URLSearchParams(rep.filters);
+            var url = pageBaseUrl + '?' + params.toString();
+            return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description) + '">' + escHtml(rep.name) + '</a></li>';
+          }).join('') +
+            '<li><hr class="dropdown-divider my-1"></li>' +
+            '<li><a class="dropdown-item small text-secondary" href="' + manageReportsUrl + '"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
+        })
+        .catch(function () {
+          menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
+        });
+    });
+
+    saveBtn.addEventListener('click', function () {
+      var form = document.querySelector(formSelector);
+      if (!form) return;
+      var data = new FormData(form);
+      var filters = {};
+      for (var pair of data.entries()) {
+        if (pair[1]) filters[pair[0]] = pair[1];
+      }
+      if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
+        window.sobsReportSaveModal.open({ pageType: pageType, filters: filters });
+      }
+    });
+  };
+</script>
+<div id="sbBoostBar"></div>
 <!-- Overlay backdrop for hamburger sidebar -->
 <div id="sbBackdrop" class="sb-backdrop"></div>
 <!-- Topbar: visible only in hamburger/small-screen mode -->
@@ -858,7 +1027,7 @@
   </nav>
 
   <!-- Main -->
-  <div class="main-content flex-grow-1 p-4">
+  <div id="mainContent" class="main-content flex-grow-1 p-4">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
         <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
@@ -868,6 +1037,7 @@
       {% endfor %}
     {% endwith %}
     {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
   </div>
 </div>
 
@@ -901,7 +1071,7 @@
 <div class="modal fade" id="saveReportModal" tabindex="-1" aria-labelledby="saveReportModalTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-secondary">
-      <form id="saveReportForm" novalidate>
+      <form id="saveReportForm" novalidate hx-boost="false">
         <div class="modal-header">
           <h5 class="modal-title" id="saveReportModalTitle">
             <i class="bi bi-bookmark-plus me-2"></i>Save Report
@@ -977,10 +1147,52 @@
 
 <div class="toast-container position-fixed bottom-0 end-0 p-3" id="sobsNotifyToastContainer" style="z-index:1200;"></div>
 
-<script src="{{ url_for('static', filename='bootstrap.bundle.min.js') }}"></script>
-<script src="{{ url_for('static', filename='date-range-picker.js') }}"></script>
-<script src="{{ url_for('static', filename='sobs-timezone.js') }}"></script>
-<script src="{{ url_for('static', filename='sobs-ansi.js') }}"></script>
+<script>
+(function () {
+  /* ===== htmx-driven SPA glue =====
+     hx-boost on <body> (see the opening tag) turns every same-origin <a href> and
+     <form method="get|post"> into a boosted request that swaps #mainContent instead of doing a
+     full page navigation. This block wires up the pieces boost alone doesn't handle: falling back
+     to a real navigation when the response has no #mainContent to select (disabled-feature pages,
+     errors, 404s), and keeping the sidebar's "active" highlight in sync with the URL after a swap
+     (the sidebar itself lives outside the swapped region). window.SOBS.onElementCleanup and
+     .whenBootstrapReady are defined earlier, right after <body> opens — see there for why. */
+
+  // ---- Fallback to a real navigation when a boosted response has nothing to select ----
+  document.body.addEventListener('htmx:beforeSwap', function (evt) {
+    var xhr = evt.detail.xhr;
+    var status = xhr ? xhr.status : 0;
+    var hasContent = !!(evt.detail.serverResponse && /id=["']mainContent["']/.test(evt.detail.serverResponse));
+    if (status < 200 || status >= 300 || !hasContent) {
+      evt.detail.shouldSwap = false;
+      evt.detail.isError = false;
+      var target = (xhr && xhr.responseURL) ? xhr.responseURL : window.location.href;
+      window.location.href = target;
+    }
+  });
+
+  // ---- Keep the sidebar/topbar "active" highlight in sync after a boosted nav ----
+  function syncActiveNavLinks() {
+    var path = window.location.pathname;
+    document.querySelectorAll('.sidebar .nav-link[href], .sb-topbar [href]').forEach(function (link) {
+      var linkPath;
+      try {
+        linkPath = new URL(link.getAttribute('href'), window.location.origin).pathname;
+      } catch (_err) {
+        return;
+      }
+      // Prefix match (not exact), mirroring the server-side `request.endpoint in (...)` groups
+      // this replaces (e.g. Dashboards/Metrics/Settings stay active on their sub-pages) — every
+      // grouped endpoint's path is the nav link's own path or that path plus a `/`-separated
+      // suffix, so this generalizes those groups instead of hardcoding each one. `/` itself is
+      // special-cased since every path is "prefixed" by it.
+      var isActive = linkPath === '/' ? path === '/' : (path === linkPath || path.indexOf(linkPath + '/') === 0);
+      link.classList.toggle('active', isActive);
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', syncActiveNavLinks);
+})();
+</script>
 
 {% if config.get('ENABLE_FIRST_RUN_TOUR', True) and request.endpoint not in ('chart_editor_help', 'metrics_rules_help', 'auto_metrics_rules_help') %}
   {% include "_first_run_tour.html" %}
@@ -1102,67 +1314,6 @@
 <script>
 (function () {
   window.SOBS = window.SOBS || {};
-
-  window.SOBS.initSavedReportsDropdown = function initSavedReportsDropdown(options) {
-    var cfg = options || {};
-    var groupId = String(cfg.groupId || '').trim();
-    var saveButtonId = String(cfg.saveButtonId || '').trim();
-    var pageType = String(cfg.pageType || '').trim();
-    var pageBaseUrl = String(cfg.pageBaseUrl || '').trim();
-    var listReportsUrl = String(cfg.listReportsUrl || '').trim();
-    var manageReportsUrl = String(cfg.manageReportsUrl || '').trim();
-    var formSelector = String(cfg.formSelector || 'form[method="get"]');
-    if (!groupId || !saveButtonId || !pageType || !pageBaseUrl || !listReportsUrl || !manageReportsUrl) return;
-
-    var group = document.getElementById(groupId);
-    var saveBtn = document.getElementById(saveButtonId);
-    if (!group || !saveBtn) return;
-    var menu = group.querySelector('ul');
-    if (!menu) return;
-
-    var escHtml = function (value) {
-      return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    };
-
-    group.addEventListener('show.bs.dropdown', function () {
-      fetch(listReportsUrl + '?page_type=' + encodeURIComponent(pageType))
-        .then(function (r) { return r.json(); })
-        .then(function (reports) {
-          if (!reports.length) {
-            menu.innerHTML = '<li><span class="dropdown-item text-secondary small">No saved reports</span></li>';
-            return;
-          }
-          menu.innerHTML = reports.map(function (rep) {
-            var params = new URLSearchParams(rep.filters);
-            var url = pageBaseUrl + '?' + params.toString();
-            return '<li><a class="dropdown-item small" href="' + url + '" title="' + escHtml(rep.description) + '">' + escHtml(rep.name) + '</a></li>';
-          }).join('') +
-            '<li><hr class="dropdown-divider my-1"></li>' +
-            '<li><a class="dropdown-item small text-secondary" href="' + manageReportsUrl + '"><i class="bi bi-gear me-1"></i>Manage reports</a></li>';
-        })
-        .catch(function () {
-          menu.innerHTML = '<li><span class="dropdown-item text-danger small">Failed to load</span></li>';
-        });
-    });
-
-    saveBtn.addEventListener('click', function () {
-      var form = document.querySelector(formSelector);
-      if (!form) return;
-      var data = new FormData(form);
-      var filters = {};
-      for (var pair of data.entries()) {
-        if (pair[1]) filters[pair[0]] = pair[1];
-      }
-      if (window.sobsReportSaveModal && typeof window.sobsReportSaveModal.open === 'function') {
-        window.sobsReportSaveModal.open({ pageType: pageType, filters: filters });
-      }
-    });
-  };
 
   window.SOBS.resolveUrl = function (value) {
     var raw = String(value == null ? '' : value).trim();
@@ -1336,15 +1487,32 @@
   window.SOBS.notify = showNotify;
   window.sobsNotify = showNotify;
 
+  // A form under an hx-boosted ancestor is intercepted by htmx before it ever reaches a plain
+  // 'submit' listener's preventDefault() — htmx decides whether to issue its request via the
+  // htmx:confirm event below, not by checking event.defaultPrevented. This listener is the
+  // fallback for forms explicitly opted OUT of boost (hx-boost="false", e.g. the handful of pages
+  // with their own fetch()-based submit handling) and for any non-JS/non-htmx submission path.
+  function isHtmxBoosted(form) {
+    var ancestor = form.closest('[hx-boost]');
+    return !!ancestor && ancestor.getAttribute('hx-boost') !== 'false';
+  }
+
   document.addEventListener('submit', function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
     var msg = form.getAttribute('data-confirm-message');
     if (!msg) return;
+    if (isHtmxBoosted(form)) return;
     if (form.dataset.confirming === '1') {
       form.dataset.confirming = '0';
       return;
     }
+    // A rapid double-click/double-submit fires this listener twice before the first dialog is
+    // even shown — without this guard, the second call would queue a second confirm request for
+    // the exact same form, which would then pop back up (asking to confirm an action that may
+    // already be in flight or done) right after the first is dismissed.
+    if (form.dataset.sobsConfirmPending === '1') return;
+    form.dataset.sobsConfirmPending = '1';
     event.preventDefault();
     var submitter = event.submitter;
     showConfirm({
@@ -1353,6 +1521,7 @@
       okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
       okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
     }).then(function (confirmed) {
+      delete form.dataset.sobsConfirmPending;
       if (!confirmed) {
         return;
       }
@@ -1375,9 +1544,35 @@
       }
     });
   }, true);
+
+  // htmx-boosted counterpart of the guard above: htmx dispatches a cancelable htmx:confirm event
+  // immediately before issuing ANY request (boosted or hx-*). Pausing it here and calling
+  // issueRequest(true) only after the user confirms is htmx's documented hook for this — a plain
+  // preventDefault() on the native 'submit' event does NOT stop htmx from proceeding.
+  document.body.addEventListener('htmx:confirm', function (event) {
+    var form = event.target && event.target.closest && event.target.closest('form[data-confirm-message]');
+    if (!form || !isHtmxBoosted(form)) return;
+    event.preventDefault();
+    // Same double-click guard as the plain-submit listener above: without it, two htmx:confirm
+    // events fired in quick succession for the same form (e.g. a rapid double-click before the
+    // first modal appears) would queue a second confirm request that pops back up right after
+    // the first is resolved, re-prompting for a row that may already be gone.
+    if (form.dataset.sobsConfirmPending === '1') return;
+    form.dataset.sobsConfirmPending = '1';
+    showConfirm({
+      title: form.getAttribute('data-confirm-title') || 'Confirm Action',
+      message: form.getAttribute('data-confirm-message'),
+      okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
+      okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
+    }).then(function (confirmed) {
+      delete form.dataset.sobsConfirmPending;
+      if (confirmed) {
+        event.detail.issueRequest(true);
+      }
+    });
+  });
 })();
 </script>
-{% block scripts %}{% endblock %}
 <script>
 (function () {
   /* ===== Theme management ===== */

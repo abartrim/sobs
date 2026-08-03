@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1
+# CI image for the Playwright E2E suite (e2e/): boots a real sobs server against the frozen
+# "base" fixture corpus (see scripts/e2e_server.py) and drives it in a real browser. Based on
+# Microsoft's official Playwright image, which ships Chromium and all its OS-level dependencies
+# pre-installed, so nothing needs downloading from Playwright's own CDN at CI time — only this
+# image layer, pulled through the same in-cluster registry mirror go-build-test already uses
+# for docker.io (see ci.yml's buildkitd-config-inline). mcr.microsoft.com is a different
+# registry than docker.io, so this mirror may need its own entry there — see the ci.yml comment
+# on the e2e job.
+#
+# The base image tag's Playwright version MUST match whatever @playwright/test actually resolves
+# to in package-lock.json (currently 1.62.1) — Playwright enforces that the test runner and the
+# browser build it drives are the same version. Bumping @playwright/test needs a matching bump
+# of the tag below.
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
+ENV DEBIAN_FRONTEND=noninteractive
+
+# --- layer: OS packages (python3 for scripts/e2e_server.py; curl to fetch Go + libchdb below) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- layer: Go toolchain (arch-matched like Dockerfile.go's TARGETARCH; busts only on GO_VERSION) ---
+# GO_VERSION is hand-duplicated from Dockerfile.ci's own ARG of the same name — bumping the Go
+# toolchain means updating both files (Dockerfile.go pins via its `golang:1.23-bookworm` base
+# image tag instead, so check that one too). No shared source of truth exists yet.
+ARG TARGETARCH
+ARG GO_VERSION=1.23.4
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+RUN case "${TARGETARCH}" in \
+      amd64) goarch=amd64 ;; \
+      arm64) goarch=arm64 ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${goarch}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    GOTOOLCHAIN=local \
+    GOPROXY=${GOPROXY} \
+    GOSUMDB=${GOSUMDB} \
+    GOMODCACHE=/root/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+# --- layer: pinned libchdb (matches go/CHDB_PIN.md; arch-matched; busts only on CHDB_VERSION) ---
+# CHDB_VERSION is hand-duplicated from Dockerfile.ci's and Dockerfile.go's own ARGs of the same
+# name (all three ultimately should match go/CHDB_PIN.md) — this exact pin has drifted out of
+# sync across copies before; bumping it here means bumping it in those files too.
+ARG CHDB_VERSION=v26.5.0
+RUN case "${TARGETARCH}" in \
+      amd64) chdb_asset=linux-x86_64-libchdb.tar.gz ;; \
+      arm64) chdb_asset=linux-aarch64-libchdb.tar.gz ;; \
+      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    mkdir -p /opt/libchdb \
+    && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/${chdb_asset}" \
+       | tar -C /opt/libchdb -xz \
+    && test -f /opt/libchdb/libchdb.so
+ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so
+
+WORKDIR /src
+
+# --- layer: Go module graph (busts only on go.mod/go.sum) ---
+COPY go/go.mod go/go.sum ./go/
+RUN cd go && go mod download
+
+# --- layer: npm dependencies (busts only on package.json/package-lock.json) ---
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# --- layers: everything the suite boots/exercises (busts on any source change) ---
+COPY templates/ templates/
+COPY static/ static/
+COPY go/ go/
+COPY scripts/e2e_server.py scripts/e2e_server.py
+COPY playwright.config.ts ./
+COPY e2e/ e2e/
+
+# webServer.reuseExistingServer in playwright.config.ts is keyed off `process.env.CI` — set it
+# so a stray already-running server on this port (there shouldn't be one, fresh container) is
+# never silently reused instead of the one this run boots.
+ENV CI=true
+RUN npx playwright test

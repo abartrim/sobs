@@ -463,6 +463,13 @@
     return;
   }
 
+  // Live-tail keeps an EventSource connection open indefinitely — without this, navigating away
+  // via htmx boost leaves it streaming in the background forever (the connection isn't tied to
+  // the DOM at all, so removing the page's elements alone doesn't close it).
+  window.SOBS.onElementCleanup(toggleBtn, function () {
+    stopLive();
+  });
+
   const activeFilters = {
     q: {{ q|tojson }},
     levels: {{ selected_levels|tojson }},
@@ -529,7 +536,10 @@
       statsSnapshotAge.textContent = String(ageSec);
     };
     update();
-    window.setInterval(update, 1000);
+    const tickerId = window.setInterval(update, 1000);
+    window.SOBS.onElementCleanup(statsSnapshotAge, function () {
+      window.clearInterval(tickerId);
+    });
   }
 
   function isPausedByScroll() {
@@ -869,7 +879,7 @@
     stopLive();
   });
 
-  window.addEventListener("scroll", () => {
+  const onLogsScroll = () => {
     if (!liveSource) {
       return;
     }
@@ -879,7 +889,15 @@
     }
     setStatus("on", `Live on (${sortDescription()})`);
     flushPendingEvents();
-  });
+  };
+  // `window` is never swapped away by htmx — anchor cleanup to toggleBtn (which is, and already
+  // has a cleanup registration above) so this doesn't accumulate one more permanent scroll
+  // listener on every boosted revisit to /logs.
+  if (window.SOBS && window.SOBS.autoCleanupListener) {
+    window.SOBS.autoCleanupListener(toggleBtn, window, "scroll", onLogsScroll);
+  } else {
+    window.addEventListener("scroll", onLogsScroll);
+  }
 
   if (newCountBtn) {
     newCountBtn.addEventListener("click", () => {
@@ -1343,11 +1361,18 @@ _sobsInitRegexFilter({
     }
   });
 
-  document.addEventListener("click", (e) => {
+  // `document` is never swapped away by htmx — anchor cleanup to `input` (which is) so this
+  // outside-click handler doesn't accumulate one more permanent copy on every boosted visit.
+  var onSqlFilterOutsideClick = (e) => {
     if (!input.contains(e.target) && !dropdown.contains(e.target)) {
       closeDropdown();
     }
-  });
+  };
+  if (window.SOBS && window.SOBS.autoCleanupListener) {
+    window.SOBS.autoCleanupListener(input, document, 'click', onSqlFilterOutsideClick);
+  } else {
+    document.addEventListener('click', onSqlFilterOutsideClick);
+  }
 
   // Pre-populate statusState for pre-filled sql (shown on first focus, not on load).
   if (input.value.trim()) {

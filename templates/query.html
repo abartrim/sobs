@@ -20,7 +20,7 @@
   <i class="bi bi-flask me-1"></i>This feature is beta. If a query fails or is blocked, retry or rephrase your question.
 </div>
 
-<form id="queryForm" autocomplete="off">
+<form id="queryForm" autocomplete="off" hx-boost="false">
   <div class="mb-3">
     <label for="questionInput" class="form-label fw-semibold">Your question</label>
     <div class="input-group">
@@ -849,9 +849,19 @@
   }
 
   // Single resize listener registered once on page load.
-  window.addEventListener('resize', function () {
+  function onQueryChartResize() {
     if (chartInstance) chartInstance.resize();
-  });
+  }
+  window.addEventListener('resize', onQueryChartResize);
+  // Without this, revisiting /query via a boosted nav re-runs this whole script and piles up
+  // another zombie 'resize' listener (plus a disposed-but-referenced chartInstance) every time,
+  // since window itself is never swapped away.
+  if (chartContainer) {
+    window.SOBS.onElementCleanup(chartContainer, function () {
+      window.removeEventListener('resize', onQueryChartResize);
+      if (chartInstance) chartInstance.dispose();
+    });
+  }
 
   function setLoading(on) {
     askBtn.disabled = on;

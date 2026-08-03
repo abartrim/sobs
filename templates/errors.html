@@ -197,6 +197,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
+(function () {
 {{ render_tz_init_script('initErrorsTimezone', 'errorsFiltersPanel', 'errors-tz-badge-btn', 'errors-tz-badge-label', 'errors-from-ts', 'errors-to-ts') }}
 
 document.querySelectorAll('.resolve-btn').forEach(btn => {
@@ -254,5 +255,6 @@ window.SOBS.initSavedReportsDropdown({
   listReportsUrl: {{ url_for('api_list_reports') | tojson }},
   manageReportsUrl: {{ url_for('list_reports') | tojson }}
 });
+})();
 </script>
 {% endblock %}

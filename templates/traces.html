@@ -813,6 +813,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 <script>
+(function () {
 if (window.sobsTimezone && typeof window.sobsTimezone.initPage === 'function') {
   window.sobsTimezone.initPage({
     fromInputId: 'traces-from-ts',
@@ -1103,6 +1104,14 @@ window.SOBS.initSavedReportsDropdown({
 
     if (ticks && ticks.length > 0 && seriesMap && typeof seriesMap === 'object') {
       var ec = echarts.init(tlEl, isDark ? 'dark' : null, { renderer: 'canvas' });
+      var onTimelineResize = null;
+      // Registered right after init so it also covers any early return further below —
+      // otherwise the chart and its window resize listener outlive the swapped-away DOM node
+      // across every htmx-boosted revisit to this page.
+      window.SOBS.onElementCleanup(tlEl, function () {
+        if (onTimelineResize) window.removeEventListener('resize', onTimelineResize);
+        ec.dispose();
+      });
 
       // Build one line series per metric name.
       var metricNames = Object.keys(seriesMap);
@@ -1230,7 +1239,8 @@ window.SOBS.initSavedReportsDropdown({
         series: ecSeries,
       });
 
-      window.addEventListener('resize', function () { ec.resize(); });
+      onTimelineResize = function () { ec.resize(); };
+      window.addEventListener('resize', onTimelineResize);
     }
   }
 
@@ -1300,5 +1310,6 @@ window.SOBS.initSavedReportsDropdown({
     }
   }
 }());
+})();
 </script>
 {% endblock %}

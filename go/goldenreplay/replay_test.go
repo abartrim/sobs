@@ -38,6 +38,8 @@ const testdataDir = "../testdata"
 // pinnedEnv mirrors migration/tools/parity_env.sh verbatim — the frozen environment both
 // the Python oracle and the Go server were replayed under to produce the golden corpus.
 // migration/ is deleted post-cutover, so this is the permanent record of that pin.
+// scripts/e2e_server.py's PINNED_ENV is a separate hand-kept copy of this same map for the
+// Playwright E2E suite — update both together (see that file's own comment).
 var pinnedEnv = map[string]string{
 	"SOBS_PARITY":                      "1",
 	"SOBS_SECRET_KEY":                  "parity-fixed-secret-key",

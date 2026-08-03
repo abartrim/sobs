@@ -77,7 +77,14 @@
       refreshTourFooter();
     });
 
-    window.addEventListener('resize', syncTourModalBounds);
+    // tourModalEl is swapped away by htmx on boosted nav; window isn't — tie teardown to it so
+    // this listener doesn't accumulate one more permanent instance on every visit to a page that
+    // includes this partial (work_items.html, settings_agents.html).
+    if (window.SOBS && window.SOBS.autoCleanupListener) {
+      window.SOBS.autoCleanupListener(tourModalEl, window, 'resize', syncTourModalBounds);
+    } else {
+      window.addEventListener('resize', syncTourModalBounds);
+    }
     refreshTourFooter();
   }
 })();

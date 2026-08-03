@@ -661,6 +661,12 @@
     hourEl.addEventListener('input', updatePreview);
     minuteEl.addEventListener('input', updatePreview);
 
+    // Marks these (freshly rendered every visit) elements as already wired, so the fallback
+    // cron-builder block below skips re-binding them within this same render. A window-level flag
+    // would work for one real page load but stays stuck true across htmx-boosted navigations
+    // (this script re-runs on every visit, but window doesn't reset), silently leaving a later
+    // visit's cron builder with no listeners at all if this block didn't run that time.
+    presetEl.dataset.cronBuilderBound = '1';
     updatePreview();
   }
 
@@ -705,7 +711,6 @@
   }
 
   initCronBuilder();
-  window.__dmCronBuilderInit = true;
   loadBackups();
 })();
 </script>
@@ -714,8 +719,6 @@
 <script>
 (function () {
   'use strict';
-
-  if (window.__dmCronBuilderInit) return;
 
   function clampInt(value, min, max, fallback) {
     var n = parseInt(String(value || ''), 10);
@@ -747,6 +750,9 @@
   var buildBtn = document.getElementById('btnBuildCron');
   var copyBtn = document.getElementById('btnCopyCron');
   if (!targetEl || !presetEl || !hourEl || !minuteEl || !previewEl || !buildBtn || !copyBtn) return;
+  // Skip if the feature-gated block above already wired these same elements this render (see its
+  // matching comment) — a DOM marker rather than a window flag so it resets on every fresh visit.
+  if (presetEl.dataset.cronBuilderBound === '1') return;
 
   function updatePreview() {
     var cron = buildCronFromPreset(presetEl.value, hourEl.value, minuteEl.value);
@@ -772,7 +778,6 @@
   hourEl.addEventListener('input', updatePreview);
   minuteEl.addEventListener('input', updatePreview);
   updatePreview();
-  window.__dmCronBuilderInit = true;
 })();
 </script>
 
