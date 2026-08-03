@@ -206,6 +206,10 @@ jobs:
 
   lint:
     name: Code Style & Linting
+    # Template/Go cross-file checks (e.g. "does this download link opt out of htmx boost") live
+    # as Go tests instead of a step here, since they need Go's AST + the url_for endpoint table
+    # to reason about templates/*.html — see cmd/sobs/hxboost_download_lint_test.go. They run via
+    # the plain `go test ./...` in Dockerfile.ci, under the go-build-test job below, on every PR.
     runs-on: sobs-runners
     permissions:
       contents: read
