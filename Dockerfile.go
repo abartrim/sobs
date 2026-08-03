@@ -6,7 +6,9 @@
 # libchdb.so + templates/ + static/. The server self-initializes its chdb schema on first run
 # (ensureSchema), so a fresh container with an empty /data volume comes up serving immediately.
 
-FROM golang:1.23-bookworm AS builder
+# GO_VERSION/CHDB_VERSION: see versions.env (repo root) — checked by scripts/check_version_pins.py.
+ARG GO_VERSION=1.23.4
+FROM golang:${GO_VERSION}-bookworm AS builder
 ARG TARGETARCH
 # GOPROXY/GOSUMDB default to Go's normal values so unparameterized builds are unaffected; CI on the
 # egress-restricted cluster passes --build-arg GOPROXY=<in-cluster Athens> GOSUMDB=off.
@@ -23,9 +25,10 @@ COPY go/ ./go/
 # The runtime image is glibc-based (debian-slim), so the dynamic binary loads fine.
 RUN cd go && CGO_ENABLED=1 go build -trimpath -o /out/sobs ./cmd/sobs
 
-# Pinned chdb-core v26.5.0 — the native build Python chdb 4.1.9 ships (see go/CHDB_PIN.md). The Go
+# Pinned chdb-core — the native build Python chdb 4.1.9 ships (see go/CHDB_PIN.md). The Go
 # store must read/write the same on-disk ClickHouse format, so this version is frozen, never latest.
 # Arch-matched (amd64 / arm64) so the image is multi-arch like the Python one.
+ARG CHDB_VERSION=v26.5.0
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) asset=linux-x86_64-libchdb.tar.gz ;; \
@@ -33,7 +36,7 @@ RUN set -eux; \
       *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/libchdb.tar.gz \
-      "https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/${asset}"; \
+      "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/${asset}"; \
     mkdir -p /out/lib; tar -xzf /tmp/libchdb.tar.gz -C /out/lib; test -f /out/lib/libchdb.so
 
 FROM debian:bookworm-slim

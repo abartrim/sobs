@@ -69,6 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Load pinned build versions (versions.env)
+        uses: ./.github/actions/load-versions-env
+
       - name: Set up Docker Buildx (in-cluster registry mirror + buildcache)
         uses: docker/setup-buildx-action@v4
         with:
@@ -87,11 +90,16 @@ jobs:
         # buildcache, so after the first run ONLY a source change recompiles. Running the tests
         # in-container (a fresh process tree) also avoids the chdb-under-runner-agent SIGSEGV. The
         # build resolves Go modules via the in-cluster Athens proxy (network=host reaches it).
+        # GO_VERSION/CHDB_VERSION come from versions.env (loaded above) — the single source of
+        # truth also used by the docker-go-smoke, playwright-e2e, and docker (release) jobs below.
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.ci
           push: false
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            CHDB_VERSION=${{ env.CHDB_VERSION }}
           cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-ci-buildcache,mode=max
 
@@ -104,14 +112,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Load pinned build versions (versions.env)
+        uses: ./.github/actions/load-versions-env
+
       - name: Build the stripped-down Go image
         # --network=host: the dind sidecar shares the runner pod's network namespace, so the build can
         # reach the in-cluster Athens proxy (ClusterIP:5000, permitted by the egress netpol) for
-        # `go mod download`. GOPROXY/GOSUMDB come from the workflow env.
+        # `go mod download`. GOPROXY/GOSUMDB come from the workflow env; GO_VERSION/CHDB_VERSION
+        # come from versions.env (loaded above) — the single source of truth shared with the
+        # go-build-test, playwright-e2e, and docker (release) jobs.
         run: |
           docker build --network=host \
             --build-arg GOPROXY="${GOPROXY}" \
             --build-arg GOSUMDB="${GOSUMDB}" \
+            --build-arg GO_VERSION="${GO_VERSION}" \
+            --build-arg CHDB_VERSION="${CHDB_VERSION}" \
             -f Dockerfile.go -t sobs:ci .
 
       - name: Start the container (empty /data — must self-seed its schema)
@@ -152,9 +167,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Load pinned build versions (versions.env)
+        uses: ./.github/actions/load-versions-env
+
       - name: Build and run the E2E suite (Dockerfile.e2e)
         # --network=host: same reasoning as docker-go-smoke — the dind sidecar shares the runner
         # pod's network namespace, so `go mod download` reaches the in-cluster Athens proxy.
+        # GO_VERSION/CHDB_VERSION come from versions.env (loaded above) — the single source of
+        # truth shared with the go-build-test, docker-go-smoke, and docker (release) jobs.
         # UNVERIFIED ON THIS CLUSTER: Dockerfile.e2e's FROM pulls mcr.microsoft.com/playwright
         # (a different registry than docker.io, which has an in-cluster mirror configured via
         # buildkitd-config-inline elsewhere in this file — see go-build-test/docker), and its own
@@ -167,6 +187,8 @@ jobs:
           docker build --network=host \
             --build-arg GOPROXY="${GOPROXY}" \
             --build-arg GOSUMDB="${GOSUMDB}" \
+            --build-arg GO_VERSION="${GO_VERSION}" \
+            --build-arg CHDB_VERSION="${CHDB_VERSION}" \
             -f Dockerfile.e2e -t sobs-e2e:ci .
 
   rum-build:
@@ -221,6 +243,10 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      - name: Verify GO_VERSION/CHDB_VERSION pins match versions.env
+        run: python3 scripts/check_version_pins.py
+
       - name: Install linting dependencies
         # Pinned: an unpinned `djlint` picked up a new release mid-migration whose H042/T039
         # checks false-positive on <label for> paired with a <textarea id> and on a nested
@@ -265,6 +291,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+
+      - name: Load pinned build versions (versions.env)
+        uses: ./.github/actions/load-versions-env
 
       - name: Resolve build version
         id: build_version
@@ -318,6 +347,8 @@ jobs:
             type=ref,event=tag
 
       - name: Build and push multi-arch Docker image
+        # GO_VERSION/CHDB_VERSION come from versions.env (loaded above) — the single source of
+        # truth shared with the go-build-test, docker-go-smoke, and playwright-e2e jobs.
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -328,6 +359,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             SOBS_BUILD_VERSION=${{ steps.build_version.outputs.value }}
+            GO_VERSION=${{ env.GO_VERSION }}
+            CHDB_VERSION=${{ env.CHDB_VERSION }}
           cache-from: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-buildcache
           cache-to: type=registry,ref=registry-cache.ci-cache.svc.cluster.local:5000/sobs-buildcache,mode=max
 

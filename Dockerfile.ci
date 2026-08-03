@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- layer: Go toolchain (busts only on GO_VERSION) ---
+# GO_VERSION/CHDB_VERSION: see versions.env (repo root) — checked by scripts/check_version_pins.py.
 ARG GO_VERSION=1.23.4
 RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \

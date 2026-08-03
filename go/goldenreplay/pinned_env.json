@@ -1,0 +1,12 @@
+{
+  "SOBS_PARITY": "1",
+  "SOBS_SECRET_KEY": "parity-fixed-secret-key",
+  "SOBS_SESSION_COOKIE_NAME": "sobs_session",
+  "SOBS_SESSION_COOKIE_SAMESITE": "Lax",
+  "SOBS_BASE_PATH": "",
+  "SOBS_ENABLE_FIRST_RUN_TOUR": "0",
+  "SOBS_SUMMARY_STATS_CACHE_TTL_SEC": "0",
+  "SOBS_FAKE_EPOCH": "1704164645.0",
+  "SOURCE_MAP_ENABLE": "0",
+  "TZ": "America/Phoenix"
+}
