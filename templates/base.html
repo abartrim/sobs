@@ -724,8 +724,11 @@
        3. It has its own JS 'submit'/'click' handler that expects to fully own the request
           (client-side validation, a custom fetch() call, a confirm flow other than the shared
           data-confirm-message one below) rather than letting htmx issue the request.
-     There is no automated check for this yet — when adding a new form/link, check it against
-     this list by hand. -->
+     Category 2 has a partial automated check (see hxboost_download_lint_test.go, in the Go
+     server's cmd/sobs package: fails if a <a>/<form> targeting a known Content-Disposition:
+     attachment endpoint, or carrying a `download` attribute, is missing hx-boost="false") — see
+     that file's doc comment for exactly what it does and doesn't catch. Categories 1 and 3 have
+     no automated check; when adding a new form/link, check it against this list by hand. -->
 <body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
 <!-- Vendor libs load here, before the page content/scripts blocks below, so that a page's own
      bottom-of-page script can rely on bootstrap/htmx/etc. being available synchronously — same

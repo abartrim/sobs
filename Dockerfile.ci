@@ -66,6 +66,14 @@ RUN go vet -tags chdb ./goldenreplay/...
 # whole measure-then-gate sequence inside a single step removes any dependency on BuildKit's
 # cross-layer snapshot handling, which is worth avoiding here.
 #
+# The plain `go test ./...` below (no chdb tag needed) also runs
+# cmd/sobs/hxboost_download_lint_test.go on every PR: a template/CI-gated check that flags
+# templates/*.html <a>/<form> tags which look like Content-Disposition:attachment file downloads
+# (a `download` attribute, or a url_for(...) target known to set that header) but are missing the
+# hx-boost="false" the contract comment above <body> in templates/base.html requires for them.
+# It only covers that one category of the contract — see the doc comment at the top of that test
+# file for exactly what it does and doesn't catch.
+#
 # --- Go-native golden-corpus replay suite (Phase 0 of the Python-removal cutover): replays the
 # frozen corpus in go/testdata/ against this same compiled binary over real HTTP, no Python
 # involved. SOBS_CHDB_MAX_SERVER_MB=0 disables chdb's cgroup-aware memory cap, which otherwise
