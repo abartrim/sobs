@@ -4,9 +4,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/rand"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sobs/sobs/internal/jsonenc"
@@ -42,15 +45,48 @@ func bNum(m map[string]any, key string) float64 {
 // Under the parity clock (SOBS_FAKE_EPOCH) this is the frozen 1704164645000.
 func fixedVersionMillis() int64 { return nowUTC().UnixMilli() }
 
-// newUUIDHex mirrors uuid.uuid4().hex for production inserts. Parity test bodies always pass an
-// explicit `id`, so this is never reached under capture/replay (uuid is not parity-frozen in Go).
-func newUUIDHex() string { return hex.EncodeToString(randBytes(16)) }
+// parityUUIDSeed pins the deterministic UUID source (uuidRandBytes) under golden-corpus
+// replay to the same fixed epoch SOBS_FAKE_EPOCH uses (clock.go) — no significance beyond
+// being a fixed, memorable constant.
+const parityUUIDSeed = 1704164645
+
+var (
+	parityUUIDOnce sync.Once
+	parityUUIDRand *rand.Rand
+	parityUUIDMu   sync.Mutex
+)
+
+// uuidRandBytes returns cryptographically random bytes (randBytes/crypto/rand) in production,
+// or a fixed-seed reproducible byte stream when SOBS_PARITY=1 — mirroring nowUTC's
+// SOBS_FAKE_EPOCH clock freeze (clock.go). newUUIDHex/newUUIDv4 output is not masked in the
+// golden-corpus manifest, so any route whose golden fixture captured a server-generated id
+// (rather than an explicit request "id") would otherwise mismatch on every replay: real
+// crypto/rand never reproduces the same bytes twice. The golden-corpus harness boots a fresh
+// sobs process per profile and replays the identical route sequence every run (replay_test.go),
+// so seeding once per process reproduces the identical id sequence byte-for-byte across runs.
+// Gated on SOBS_PARITY (not a replay-only build tag) so it stays inert in production — the same
+// var already flips this behavior off outside golden-corpus replay (main.go's cfg.Parity).
+func uuidRandBytes(n int) []byte {
+	if os.Getenv("SOBS_PARITY") != "1" {
+		return randBytes(n)
+	}
+	parityUUIDOnce.Do(func() { parityUUIDRand = rand.New(rand.NewSource(parityUUIDSeed)) })
+	b := make([]byte, n)
+	parityUUIDMu.Lock()
+	_, _ = parityUUIDRand.Read(b)
+	parityUUIDMu.Unlock()
+	return b
+}
+
+// newUUIDHex mirrors uuid.uuid4().hex for production inserts. Parity test bodies usually pass
+// an explicit `id`, but for the handful that don't (the id is server-generated), uuidRandBytes
+// keeps golden-corpus replay deterministic — see its comment.
+func newUUIDHex() string { return hex.EncodeToString(uuidRandBytes(16)) }
 
 // newUUIDv4 mirrors str(uuid.uuid4()) — the dashed 36-char v4 form used by app.py inserts
-// whose id is server-generated. Parity test bodies pass explicit ids or never read the row
-// back, so the exact random value is never compared.
+// whose id is server-generated. See uuidRandBytes for why this is parity-deterministic.
 func newUUIDv4() string {
-	b := randBytes(16)
+	b := uuidRandBytes(16)
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // variant
 	h := hex.EncodeToString(b)
