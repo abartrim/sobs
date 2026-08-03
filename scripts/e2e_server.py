@@ -29,7 +29,12 @@ FIXTURES_DIR = GO_DIR / "testdata" / "fixtures"
 # under — go/goldenreplay/replay_test.go embeds this same file as its pinnedEnv. Edit
 # pinned_env.json, not either Go/Python copy, to change the pin.
 PINNED_ENV_FILE = GO_DIR / "goldenreplay" / "pinned_env.json"
-PINNED_ENV: dict[str, str] = json.loads(PINNED_ENV_FILE.read_text())
+try:
+    PINNED_ENV: dict[str, str] = json.loads(PINNED_ENV_FILE.read_text())
+except FileNotFoundError:
+    sys.exit(f"{PINNED_ENV_FILE} is missing — it should be git-tracked; check your checkout")
+except json.JSONDecodeError as e:
+    sys.exit(f"{PINNED_ENV_FILE} is not valid JSON: {e}")
 
 DEFAULT_PORT = 48173
 

@@ -6,10 +6,7 @@
 # libchdb.so + templates/ + static/. The server self-initializes its chdb schema on first run
 # (ensureSchema), so a fresh container with an empty /data volume comes up serving immediately.
 
-# GO_VERSION/CHDB_VERSION default to the pins in versions.env (repo root) — the single source
-# of truth shared with Dockerfile.ci and Dockerfile.e2e; CI always passes both explicitly as
-# --build-arg (see .github/workflows/ci.yml), and scripts/check_version_pins.py fails the lint
-# job if these defaults drift from versions.env.
+# GO_VERSION/CHDB_VERSION: see versions.env (repo root) — checked by scripts/check_version_pins.py.
 ARG GO_VERSION=1.23.4
 FROM golang:${GO_VERSION}-bookworm AS builder
 ARG TARGETARCH
@@ -30,8 +27,7 @@ RUN cd go && CGO_ENABLED=1 go build -trimpath -o /out/sobs ./cmd/sobs
 
 # Pinned chdb-core — the native build Python chdb 4.1.9 ships (see go/CHDB_PIN.md). The Go
 # store must read/write the same on-disk ClickHouse format, so this version is frozen, never latest.
-# Arch-matched (amd64 / arm64) so the image is multi-arch like the Python one. Defaults to the
-# versions.env pin like GO_VERSION above; CI always passes it explicitly.
+# Arch-matched (amd64 / arm64) so the image is multi-arch like the Python one.
 ARG CHDB_VERSION=v26.5.0
 RUN set -eux; \
     case "${TARGETARCH}" in \
