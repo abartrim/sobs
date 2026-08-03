@@ -199,10 +199,14 @@ func (s *server) baseContext(endpoint string) map[string]any {
 }
 
 // handleHelpPage renders a *_help.html template (the dynamically-registered help routes).
-// endpoint is the Quart endpoint name (used by base.html nav-active logic).
+// endpoint is the Quart endpoint name (used by base.html nav-active logic). Like renderPage, any
+// flash message left by a prior flashRedirect() is rendered here and cleared from the session
+// (see consumeSessionFlashes) — these are full pages extending base.html, so they can be the
+// "next page view" a redirect lands on.
 func (s *server) handleHelpPage(endpoint, templateName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		eng := s.newEngine(r)
+		flashes := s.consumeSessionFlashes(w, r)
+		eng := s.newEngineFlash(r, flashes)
 		out, err := eng.Render(templateName, s.baseContext(endpoint))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
