@@ -50,9 +50,13 @@ func fixedVersionMillis() int64 { return nowUTC().UnixMilli() }
 // being a fixed, memorable constant.
 const parityUUIDSeed = 1704164645
 
+// parityUUIDRand is initialized as part of normal package init (single-threaded, before any
+// goroutine runs — see the Go spec's "Program initialization"), so unlike a lazily-built
+// singleton it needs no sync.Once/nil-check: it's safe to read (under parityUUIDMu) the moment
+// any goroutine can run. Constructing it is cheap and side-effect-free, so building it
+// unconditionally costs nothing on the production path, which never reads it.
 var (
-	parityUUIDOnce sync.Once
-	parityUUIDRand *rand.Rand
+	parityUUIDRand = rand.New(rand.NewSource(parityUUIDSeed))
 	parityUUIDMu   sync.Mutex
 )
 
@@ -70,7 +74,6 @@ func uuidRandBytes(n int) []byte {
 	if os.Getenv("SOBS_PARITY") != "1" {
 		return randBytes(n)
 	}
-	parityUUIDOnce.Do(func() { parityUUIDRand = rand.New(rand.NewSource(parityUUIDSeed)) })
 	b := make([]byte, n)
 	parityUUIDMu.Lock()
 	_, _ = parityUUIDRand.Read(b)
