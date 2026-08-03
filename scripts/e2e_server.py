@@ -14,6 +14,7 @@ sends the command process a termination signal on teardown) reaches the server d
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -24,20 +25,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 GO_DIR = REPO_ROOT / "go"
 FIXTURES_DIR = GO_DIR / "testdata" / "fixtures"
 
-# Mirrors go/goldenreplay/replay_test.go's pinnedEnv verbatim — the frozen environment the
-# golden corpus was captured under. Kept in sync by hand; if that map changes, update this too.
-PINNED_ENV = {
-    "SOBS_PARITY": "1",
-    "SOBS_SECRET_KEY": "parity-fixed-secret-key",
-    "SOBS_SESSION_COOKIE_NAME": "sobs_session",
-    "SOBS_SESSION_COOKIE_SAMESITE": "Lax",
-    "SOBS_BASE_PATH": "",
-    "SOBS_ENABLE_FIRST_RUN_TOUR": "0",
-    "SOBS_SUMMARY_STATS_CACHE_TTL_SEC": "0",
-    "SOBS_FAKE_EPOCH": "1704164645.0",
-    "SOURCE_MAP_ENABLE": "0",
-    "TZ": "America/Phoenix",
-}
+# The single source of truth for the frozen environment the golden corpus was captured
+# under — go/goldenreplay/replay_test.go embeds this same file as its pinnedEnv. Edit
+# pinned_env.json, not either Go/Python copy, to change the pin.
+PINNED_ENV_FILE = GO_DIR / "goldenreplay" / "pinned_env.json"
+PINNED_ENV: dict[str, str] = json.loads(PINNED_ENV_FILE.read_text())
 
 DEFAULT_PORT = 48173
 

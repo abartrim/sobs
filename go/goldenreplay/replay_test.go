@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -35,30 +36,33 @@ import (
 
 const testdataDir = "../testdata"
 
-// pinnedEnv mirrors migration/tools/parity_env.sh verbatim — the frozen environment both
+// pinnedEnvJSON mirrors migration/tools/parity_env.sh verbatim — the frozen environment both
 // the Python oracle and the Go server were replayed under to produce the golden corpus.
-// migration/ is deleted post-cutover, so this is the permanent record of that pin.
-// scripts/e2e_server.py's PINNED_ENV is a separate hand-kept copy of this same map for the
-// Playwright E2E suite — update both together (see that file's own comment).
-var pinnedEnv = map[string]string{
-	"SOBS_PARITY":                      "1",
-	"SOBS_SECRET_KEY":                  "parity-fixed-secret-key",
-	"SOBS_SESSION_COOKIE_NAME":         "sobs_session",
-	"SOBS_SESSION_COOKIE_SAMESITE":     "Lax",
-	"SOBS_BASE_PATH":                   "",
-	"SOBS_ENABLE_FIRST_RUN_TOUR":       "0",
-	"SOBS_SUMMARY_STATS_CACHE_TTL_SEC": "0",
-	"SOBS_FAKE_EPOCH":                  "1704164645.0",
-	"SOURCE_MAP_ENABLE":                "0",
-	// chdb's embedded ClickHouse engine formats DateTime columns (e.g. hyperdx_sessions.Timestamp)
-	// to strings using the PROCESS's system timezone — a chdb-internal behavior entirely outside
-	// SOBS_FAKE_EPOCH's app-level clock override (the same class of gotcha as chdb's now() reading
-	// real vDSO time). The frozen golden corpus was captured on a host with TZ=America/Phoenix
-	// (fixed MST, no DST); replaying on a host/container with a different system TZ (e.g. a UTC
-	// CI runner) silently reformats those same underlying values to different strings, byte-diffing
-	// as a MISMATCH despite identical underlying data. Pinning TZ here — like SOBS_FAKE_EPOCH pins
-	// the app clock — makes the corpus portable to any machine, not just the one that captured it.
-	"TZ": "America/Phoenix",
+// migration/ is deleted post-cutover, so pinned_env.json is the permanent record of that pin.
+// scripts/e2e_server.py loads the same pinned_env.json for the Playwright E2E suite, so this
+// is the single source of truth for both — edit pinned_env.json, not either Go/Python copy.
+//
+// One entry needs an explanation JSON can't carry as a comment: chdb's embedded ClickHouse
+// engine formats DateTime columns (e.g. hyperdx_sessions.Timestamp) to strings using the
+// PROCESS's system timezone — a chdb-internal behavior entirely outside SOBS_FAKE_EPOCH's
+// app-level clock override (the same class of gotcha as chdb's now() reading real vDSO time).
+// The frozen golden corpus was captured on a host with TZ=America/Phoenix (fixed MST, no DST);
+// replaying on a host/container with a different system TZ (e.g. a UTC CI runner) silently
+// reformats those same underlying values to different strings, byte-diffing as a MISMATCH
+// despite identical underlying data. Pinning TZ — like SOBS_FAKE_EPOCH pins the app clock —
+// makes the corpus portable to any machine, not just the one that captured it.
+//
+//go:embed pinned_env.json
+var pinnedEnvJSON []byte
+
+var pinnedEnv = mustParsePinnedEnv(pinnedEnvJSON)
+
+func mustParsePinnedEnv(data []byte) map[string]string {
+	var env map[string]string
+	if err := json.Unmarshal(data, &env); err != nil {
+		panic(fmt.Sprintf("goldenreplay: parsing pinned_env.json: %v", err))
+	}
+	return env
 }
 
 var buildOnce sync.Once

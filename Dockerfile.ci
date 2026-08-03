@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- layer: Go toolchain (busts only on GO_VERSION) ---
+# Defaults to the versions.env pin (repo root) shared with Dockerfile.go/Dockerfile.e2e; CI
+# always passes it explicitly as --build-arg (see .github/workflows/ci.yml), and
+# scripts/check_version_pins.py fails the lint job if this default drifts from versions.env.
 ARG GO_VERSION=1.23.4
 RUN curl -4 -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
@@ -31,6 +34,7 @@ ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
     GOCACHE=/root/.cache/go-build
 
 # --- layer: pinned libchdb (busts only on CHDB_VERSION) ---
+# Defaults to the versions.env pin, same as GO_VERSION above.
 ARG CHDB_VERSION=v26.5.0
 RUN mkdir -p /opt/libchdb \
     && curl -4 -fsSL "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/linux-x86_64-libchdb.tar.gz" \
