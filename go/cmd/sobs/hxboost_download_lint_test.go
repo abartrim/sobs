@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -33,8 +32,12 @@ import (
 //     knownDownloadEndpoints below — so a NEW download handler cannot be added without also
 //     wiring in its url_for endpoint name(s), keeping the map from silently going stale.
 //   - TestHxBoostDownloadLinksNeedBoostFalse scans templates/*.html for <a>/<form> tags that
-//     either carry a literal `download` attribute or resolve via url_for(...) to an endpoint in
-//     knownDownloadEndpoints, and fails if such a tag is missing hx-boost="false".
+//     either carry a literal `download` attribute or whose href/action (single- or double-quoted)
+//     resolves to an endpoint in knownDownloadEndpoints, and fails if such a tag is missing
+//     hx-boost="false". Resolution handles both a url_for(...) call written directly in the
+//     attribute AND one level of {% set %} variable indirection (including a dict literal, e.g.
+//     `{% set m = {'k': url_for('export_chart')} %}` ... `href="{{ m[key] }}"`, the pattern
+//     templates/reports.html's page_url_map actually uses) — see resolveTagDownloadEndpoints.
 //
 // WHAT IS NOT COVERED (intentionally — do not read a green run of this test as "the hx-boost
 // contract is fully enforced"):
@@ -53,6 +56,11 @@ import (
 //     conversely, this check cannot see an ancestor opt-out being incorrectly relied upon.
 //   - A download reachable only via JS (fetch()/window.location, with no <a href>/<form action>
 //     in a template) is invisible to a template scan by construction.
+//   - Variable indirection beyond one {% set %} hop: a value only known after a Jinja filter/
+//     function call (`{{ some_func(x) }}`), a variable set in an included/parent template rather
+//     than the file being scanned, or a macro parameter passed in from the call site all evade
+//     resolveTagDownloadEndpoints — it only understands `{% set NAME = <literal url_for(...) or
+//     dict-of-them> %}` in the SAME file as the tag.
 //   - The `download` attribute half of category 2 is a heuristic, not the real signal: htmx does
 //     not care whether the attribute is present. A future <a download> that DOESN'T hit a
 //     Content-Disposition:attachment endpoint (e.g. a client-side blob download, like
@@ -175,11 +183,73 @@ func TestKnownDownloadEndpointsCoverAllHandlers(t *testing.T) {
 }
 
 var (
-	tagRe          = regexp.MustCompile(`<(?:a|form)\b[^>]*>`)
+	// tagRe matches a whole <a ...> or <form ...> opening tag, including any '>' that appears
+	// inside a quoted attribute value (e.g. title="Rate > 5") rather than stopping there — a bare
+	// `[^>]*` would truncate the match at that inner '>' and silently miss everything after it,
+	// including href/action and hx-boost.
+	tagRe          = regexp.MustCompile(`<(?:a|form)\b(?:"[^"]*"|'[^']*'|[^>"'])*>`)
 	downloadAttrRe = regexp.MustCompile(`\bdownload\b`)
 	hxBoostFalseRe = regexp.MustCompile(`hx-boost\s*=\s*"false"`)
-	urlForTargetRe = regexp.MustCompile(`(?:href|action)\s*=\s*"[^"]*\{\{\s*url_for\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]`)
+	// attrValueRe extracts the value of a href or action attribute, single- or double-quoted.
+	attrValueRe = regexp.MustCompile(`(?:href|action)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
+	// literalURLForRe finds every url_for('name', ...) / url_for("name", ...) call in a string —
+	// used both on an attribute value directly and on a {% set %} statement's right-hand side.
+	literalURLForRe = regexp.MustCompile(`url_for\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]`)
+	// varRefRe matches a bare Jinja variable reference at the start of an expression, e.g. the
+	// `page_url_map` in `{{ page_url_map[report.page_type] }}` — captured whether it's indexed,
+	// filtered, or output as-is.
+	varRefRe = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:[\[.|]|\}\})`)
+	// setRe matches a {% set NAME = <rhs> %} statement, capturing the variable name and its
+	// (possibly multi-line, possibly a dict literal) right-hand side up to the closing %}.
+	setRe = regexp.MustCompile(`\{%-?\s*set\s+([A-Za-z_][A-Za-z0-9_]*)\s*=([\s\S]*?)-?%\}`)
 )
+
+// fileSetEndpoints scans a template file's full text for {% set NAME = ... %} statements and
+// returns, for each variable name, every url_for(...) endpoint name referenced anywhere in its
+// right-hand side (so a dict literal like {% set m = {'a': url_for('x'), 'b': url_for('y')} %}
+// maps m to both x and y — resolveTagDownloadEndpoints doesn't know which key a given lookup
+// picks, so it treats any of them as reachable).
+func fileSetEndpoints(content string) map[string][]string {
+	out := map[string][]string{}
+	for _, m := range setRe.FindAllStringSubmatch(content, -1) {
+		name, rhs := m[1], m[2]
+		for _, um := range literalURLForRe.FindAllStringSubmatch(rhs, -1) {
+			out[name] = append(out[name], um[1])
+		}
+	}
+	return out
+}
+
+// resolveTagDownloadEndpoints returns the known-download endpoint name(s) that tag's href/action
+// appears to target: a url_for(...) call written directly in the attribute, or one written inside
+// a {% set %} variable the attribute references (see fileSetEndpoints). Returns nil if the tag
+// has no href/action, or it doesn't resolve to anything in knownDownloadEndpoints.
+func resolveTagDownloadEndpoints(tag string, setEndpoints map[string][]string) []string {
+	am := attrValueRe.FindStringSubmatch(tag)
+	if am == nil {
+		return nil
+	}
+	value := am[1]
+	if value == "" {
+		value = am[2]
+	}
+
+	var candidates []string
+	for _, um := range literalURLForRe.FindAllStringSubmatch(value, -1) {
+		candidates = append(candidates, um[1])
+	}
+	if vm := varRefRe.FindStringSubmatch(value); vm != nil {
+		candidates = append(candidates, setEndpoints[vm[1]]...)
+	}
+
+	var known []string
+	for _, endpoint := range candidates {
+		if _, ok := knownDownloadEndpoints[endpoint]; ok {
+			known = append(known, endpoint)
+		}
+	}
+	return known
+}
 
 // TestHxBoostDownloadLinksNeedBoostFalse scans every templates/*.html file for <a>/<form> tags
 // that look like file-download triggers (see the package doc comment above for exactly what
@@ -194,6 +264,9 @@ func TestHxBoostDownloadLinksNeedBoostFalse(t *testing.T) {
 		t.Fatalf("no *.html files found under %s — templatesDir is likely wrong", templatesDir)
 	}
 
+	// filepath.Glob returns files sorted by name (it builds on os.ReadDir's sort-by-filename
+	// guarantee), and regexp.FindAllString returns each file's matches in file-content order, so
+	// violations is already produced in a fully deterministic file-then-position order.
 	var violations []string
 	for _, path := range files {
 		content, err := os.ReadFile(path)
@@ -201,6 +274,7 @@ func TestHxBoostDownloadLinksNeedBoostFalse(t *testing.T) {
 			t.Fatalf("reading %s: %v", path, err)
 		}
 		rel, _ := filepath.Rel(templatesDir, path)
+		setEndpoints := fileSetEndpoints(string(content))
 		for _, tag := range tagRe.FindAllString(string(content), -1) {
 			if hxBoostFalseRe.MatchString(tag) {
 				continue
@@ -209,10 +283,8 @@ func TestHxBoostDownloadLinksNeedBoostFalse(t *testing.T) {
 			var reason string
 			if downloadAttrRe.MatchString(tag) {
 				reason = "has a `download` attribute"
-			} else if m := urlForTargetRe.FindStringSubmatch(tag); m != nil {
-				if _, ok := knownDownloadEndpoints[m[1]]; ok {
-					reason = fmt.Sprintf("targets known-download endpoint %q", m[1])
-				}
+			} else if endpoints := resolveTagDownloadEndpoints(tag, setEndpoints); len(endpoints) > 0 {
+				reason = fmt.Sprintf("targets known-download endpoint(s) %q", endpoints)
 			}
 			if reason == "" {
 				continue
@@ -227,7 +299,6 @@ func TestHxBoostDownloadLinksNeedBoostFalse(t *testing.T) {
 	}
 
 	if len(violations) > 0 {
-		sort.Strings(violations)
 		t.Errorf("%d template tag(s) look like file downloads but do not opt out of htmx boost "+
 			"(see the hx-boost contract comment above <body> in templates/base.html, category 2: "+
 			"a boosted download link gets XHR-fetched and swap-checked before ever falling back to "+
