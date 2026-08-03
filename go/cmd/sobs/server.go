@@ -31,6 +31,13 @@ type server struct {
 }
 
 func newServer(cfg config) *server {
+	// sessionSecretKey (handlers_forms.go) signs flash-message/CI-push-key session cookies; left
+	// at its insecure default, anyone can compute a valid signature and forge one. Parity mode
+	// intentionally never sets SOBS_SECRET_KEY, so skip the warning there.
+	if !cfg.Parity && cfg.SecretKey == "sobs-dev-secret-key" {
+		log.Printf("warning: SOBS_SECRET_KEY is unset (using the insecure default) — session cookies " +
+			"(flash messages, the one-time CI-push key) can be forged; set SOBS_SECRET_KEY to a random secret")
+	}
 	s := &server{cfg: cfg, mux: http.NewServeMux(), sse: newSSEBroker(), auth: loadAuthConfig(), tel: loadTelemetry(), rumClient: loadRumClientConfig(), rumAsset: loadRumAssetConfig(), srcMap: loadSourceMapper()}
 	// Open the shared chdb session, retrying the intermittent embedded-server "recursive_mutex
 	// lock failed" boot error (a chdb-go contention bug seen under many sequential per-profile

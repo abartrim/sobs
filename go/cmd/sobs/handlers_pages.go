@@ -422,14 +422,64 @@ func textStatus(w http.ResponseWriter, status int, body string) {
 	_, _ = w.Write([]byte(body))
 }
 
+// consumeSessionFlashesFrom is consumeSessionFlashes given an already-decoded session object (for
+// a caller like handleViewSettingsRepositories that also needs ciPushPlainByAppFromSession from
+// the very same cookie, so the cookie is only decoded once per request). If the object carried a
+// "_flashes" key, the response's Set-Cookie re-sends the session with just that key removed (any
+// other session entry, e.g. a one-time ci_push_api_key_plain_by_app, survives) — mirroring Quart's
+// session.pop("_flashes"), which only drops that key, not the whole session.
+func (s *server) consumeSessionFlashesFrom(w http.ResponseWriter, obj *jsonenc.Object, decoded bool) []any {
+	if !decoded {
+		return nil
+	}
+	flashes, hadFlashes := flashesFromSession(obj)
+	if !hadFlashes {
+		return nil
+	}
+	w.Header().Set("Set-Cookie", sessionCookieHeaderFor(sessionObjectWithoutKey(obj, "_flashes")))
+	appendVaryHeader(w.Header(), "Cookie")
+	return flashes
+}
+
+// consumeSessionFlashes reads any flash message(s) pending in the request's sobs_session cookie
+// (set by a prior flashRedirect()) and, if the cookie carried a "_flashes" key, arranges for the
+// response to re-send the session cookie with that key consumed — mirroring Quart's
+// get_flashed_messages(), which pops "_flashes" from the session and so marks it modified,
+// regardless of whether every entry decoded cleanly. Call this before writing any response
+// body/headers that depend on it, since it sets Set-Cookie/Vary on w.
+func (s *server) consumeSessionFlashes(w http.ResponseWriter, r *http.Request) []any {
+	obj, ok := decodeSessionCookie(r)
+	return s.consumeSessionFlashesFrom(w, obj, ok)
+}
+
+// renderFlashedInto is the shared tail of renderPage/renderPageReq: consume any pending session
+// flash and render templateName with it wired into get_flashed_messages.
+func (s *server) renderFlashedInto(w http.ResponseWriter, r *http.Request, templateName string, ctx map[string]any) {
+	flashes := s.consumeSessionFlashes(w, r)
+	s.renderInto(w, s.newEngineFlash(r, flashes), templateName, ctx)
+}
+
 // renderPage renders an HTML template with baseContext merged with extra context vars and
-// writes it with Quart's text/html content type.
+// writes it with Quart's text/html content type. Any flash message left by a prior flashRedirect()
+// is rendered here and cleared from the session (see consumeSessionFlashes).
 func (s *server) renderPage(w http.ResponseWriter, r *http.Request, templateName, endpoint string, extra map[string]any) {
 	ctx := s.baseContext(endpoint)
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	s.renderInto(w, s.newEngine(r), templateName, ctx)
+	s.renderFlashedInto(w, r, templateName, ctx)
+}
+
+// renderPageWithFlashes is renderPage for a caller that already decoded the session cookie itself
+// (e.g. to also read ciPushPlainByAppFromSession) and has already consumed/cleared it via
+// consumeSessionFlashesFrom — it renders with the given pre-computed flashes without decoding the
+// cookie a second time.
+func (s *server) renderPageWithFlashes(w http.ResponseWriter, r *http.Request, templateName, endpoint string, flashes []any, extra map[string]any) {
+	ctx := s.baseContext(endpoint)
+	for k, v := range extra {
+		ctx[k] = v
+	}
+	s.renderInto(w, s.newEngineFlash(r, flashes), templateName, ctx)
 }
 
 // requestArgsContext mirrors Quart's `request` object for templates that read request.args
@@ -447,28 +497,41 @@ func requestArgsContext(r *http.Request, endpoint string) map[string]any {
 }
 
 // renderPageReq is renderPage with request.args populated from r (for pages whose templates
-// consult request.args).
+// consult request.args). Any flash message left by a prior flashRedirect() is rendered here and
+// cleared from the session (see consumeSessionFlashes).
 func (s *server) renderPageReq(w http.ResponseWriter, r *http.Request, templateName, endpoint string, extra map[string]any) {
 	ctx := s.baseContext(endpoint)
 	ctx["request"] = requestArgsContext(r, endpoint)
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	s.renderInto(w, s.newEngine(r), templateName, ctx)
+	s.renderFlashedInto(w, r, templateName, ctx)
 }
 
-// renderPageFlash renders a page with a single pre-seeded flash (category, message) consumed
-// by get_flashed_messages — for handlers that flash() then render rather than redirect.
+// renderPageFlash renders a page with an explicit (category, message) flash — for handlers that
+// flash() then render rather than redirect. Like Quart's flash() + get_flashed_messages() in the
+// same request, this also surfaces (and consumes) any flash ALREADY pending in the session cookie
+// ahead of the new one, so a real flashRedirect() message from an earlier request is never
+// silently discarded just because this request's GET happened to take this render path instead of
+// renderPage.
 func (s *server) renderPageFlash(w http.ResponseWriter, r *http.Request, templateName, endpoint, flashCategory, flashMessage string, extra map[string]any) {
 	ctx := s.baseContext(endpoint)
 	for k, v := range extra {
 		ctx[k] = v
 	}
-	eng := s.newEngineFlash(r, []any{[]any{flashCategory, flashMessage}})
-	// Consuming the flash empties the session, so Quart clears the session cookie and marks
-	// the response Vary: Cookie (it read the request session).
-	w.Header().Set("Set-Cookie", sessionCookieName+"=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0"+sessionCookieAttrs())
-	w.Header().Set("Vary", "Cookie")
+	obj, decoded := decodeSessionCookie(r)
+	existing, _ := flashesFromSession(obj)
+	flashes := append(existing, []any{flashCategory, flashMessage})
+	eng := s.newEngineFlash(r, flashes)
+	// flash() always marks the session modified, so Quart re-sends the session cookie regardless
+	// of whether the incoming request had one — cleared unless other session data (e.g. a
+	// still-pending ci_push_api_key_plain_by_app) survives popping "_flashes".
+	var remaining *jsonenc.Object
+	if decoded {
+		remaining = sessionObjectWithoutKey(obj, "_flashes")
+	}
+	w.Header().Set("Set-Cookie", sessionCookieHeaderFor(remaining))
+	appendVaryHeader(w.Header(), "Cookie")
 	s.renderInto(w, eng, templateName, ctx)
 }
 
@@ -3801,7 +3864,10 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 	}
 	// app.py: ci_push_plain_by_app = session.pop("ci_push_api_key_plain_by_app", {}) — the
 	// one-time plaintext key shown once right after a rotation. Empty on the corpus (no cookie).
-	apps := s.buildRepositoriesApps(sessionCiPushPlainByApp(r))
+	// Decoded once and shared with consumeSessionFlashesFrom below, since this page reads two
+	// different things (the ci-push key and any pending flash) out of the very same cookie.
+	sessObj, sessDecoded := decodeSessionCookie(r)
+	apps := s.buildRepositoriesApps(ciPushPlainByAppFromSession(sessObj))
 	realtimeEnabled, realtimeConfigured := false, false
 	for _, a := range apps {
 		if m, ok := a.(map[string]any); ok {
@@ -3816,7 +3882,8 @@ func (s *server) handleViewSettingsRepositories(w http.ResponseWriter, r *http.R
 		}
 	}
 	expiresAt := strings.TrimSpace(s.loadAISetting("ai.github_token_expires_at", ""))
-	s.renderPage(w, r, "settings_repositories.html", "view_settings_repositories", map[string]any{
+	flashes := s.consumeSessionFlashesFrom(w, sessObj, sessDecoded)
+	s.renderPageWithFlashes(w, r, "settings_repositories.html", "view_settings_repositories", flashes, map[string]any{
 		"apps":                       apps,
 		"github_token_configured":    strings.TrimSpace(s.loadAISetting("ai.github_token", "")) != "",
 		"default_agent_repo":         strings.TrimSpace(s.loadAISetting("ai.github_repo", "")),
