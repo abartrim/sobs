@@ -92,6 +92,8 @@ def main() -> None:
     data_dir = workdir / "data"
     _extract_fixture(FIXTURES_DIR / "base.tar.gz", data_dir)
 
+    # Extracted (in case a future spec needs the files on disk) but NOT wired up via
+    # SOBS_UPSTREAM_FIXTURES below — see that comment for why.
     upstream_dir = workdir / "upstream"
     _extract_fixture(FIXTURES_DIR / "upstream.tar.gz", upstream_dir)
 
@@ -100,9 +102,14 @@ def main() -> None:
     env["CHDB_LIB_PATH"] = lib_path
     env["SOBS_DATA_DIR"] = str(data_dir)
     env["SOBS_PORT"] = str(args.port)
-    # Unused by the "base" profile itself (its env overlay is empty — see profile_env.json),
-    # but set for any future spec that exercises an upstream-dependent route.
-    env["SOBS_UPSTREAM_FIXTURES"] = str(upstream_dir)
+    # Deliberately NOT set: go/testdata/fixtures/profile_env.json's "base" entry is empty, so
+    # replay_test.go never sets this for the "base" profile either — go/cmd/sobs/upstream.go
+    # branches into a canned-fixture-or-404 response for ANY upstream call whenever this var is
+    # merely non-empty, regardless of whether a matching fixture file exists. Setting it here
+    # would silently diverge this server's behavior from both real production (unset -> real
+    # HTTP) and the golden-corpus harness's own "base" profile, for any future spec that hits an
+    # upstream-dependent route. A spec that actually needs canned upstream fixtures should set
+    # this explicitly (e.g. via a dedicated e2e_server.py flag), not get it by default.
 
     print(f"[e2e_server] booting sobs on port {args.port}, data dir {data_dir}", file=sys.stderr)
     os.chdir(REPO_ROOT)  # templates/ and static/ resolve relative to cwd

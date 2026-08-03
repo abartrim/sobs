@@ -745,7 +745,15 @@
       if (confirmed) {
         var form = btn.closest('form');
         if (form) {
-          form.submit();
+          // form.submit() never dispatches a 'submit' event, so htmx's boost listener (which
+          // relies on intercepting 'submit') would never see it — requestSubmit() dispatches a
+          // real submit event and keeps this delete inside the boosted flow like every other
+          // action on this page (submit() kept only as a fallback for older browsers).
+          if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit();
+          } else {
+            form.submit();
+          }
         }
       }
     });
@@ -1046,10 +1054,23 @@
     });
     tourModalEl.addEventListener('show.bs.modal', syncTourModalBounds);
 
-    window.addEventListener('resize', syncTourModalBounds);
+    // Both the resize listener and the sidebar observer are bound to targets (`window`, the
+    // persistent sidebar) that live outside #mainContent and are never swapped away by htmx —
+    // tie their teardown to tourModalEl (which IS swapped away) so they don't accumulate one
+    // more permanent instance on every boosted revisit to this page.
+    if (window.SOBS && window.SOBS.autoCleanupListener) {
+      window.SOBS.autoCleanupListener(tourModalEl, window, 'resize', syncTourModalBounds);
+    } else {
+      window.addEventListener('resize', syncTourModalBounds);
+    }
     if (sidebarEl && window.MutationObserver) {
       var sidebarObserver = new MutationObserver(syncTourModalBounds);
       sidebarObserver.observe(sidebarEl, { attributes: true, attributeFilter: ['class'] });
+      if (window.SOBS && window.SOBS.onElementCleanup) {
+        window.SOBS.onElementCleanup(tourModalEl, function () {
+          sidebarObserver.disconnect();
+        });
+      }
     }
 
     syncTourModalBounds();

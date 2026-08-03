@@ -2619,13 +2619,26 @@ _sobsInitRegexFilter({
   // Force a post-layout resize pass so sparklines fill stretched cards.
   requestAnimationFrame(resizeAll);
 
+  // Registered unconditionally (unlike the ResizeObserver below, which needs vitalsCardsEl) —
+  // anchored to #mainContent, which always exists, so an empty-state /rum visit (no
+  // vitals/error data, hence no #vitalsCards) still gets this listener torn down instead of
+  // leaking it permanently on every boosted visit. The addEventListener always runs; only the
+  // cleanup registration is conditional, and it's gated on onElementCleanup itself (the same
+  // primitive the vitalsCardsEl block below relies on unconditionally) rather than the
+  // autoCleanupListener wrapper, so there's no path where this listener is added with no way to
+  // ever remove it.
   window.addEventListener('resize', resizeAll);
+  var rumResizeAllMainContentEl = document.getElementById('mainContent');
+  if (window.SOBS && window.SOBS.onElementCleanup && rumResizeAllMainContentEl) {
+    window.SOBS.onElementCleanup(rumResizeAllMainContentEl, function () {
+      window.removeEventListener('resize', resizeAll);
+    });
+  }
 
   if (vitalsCardsEl) {
     var cardsObserver = (typeof ResizeObserver === 'undefined') ? null : new ResizeObserver(resizeAll);
     if (cardsObserver) cardsObserver.observe(vitalsCardsEl);
     window.SOBS.onElementCleanup(vitalsCardsEl, function () {
-      window.removeEventListener('resize', resizeAll);
       if (cardsObserver) cardsObserver.disconnect();
     });
   }
@@ -2901,7 +2914,7 @@ _sobsInitRegexFilter({
   }
 
   // ─── Expand button click handler ────────────────────────────────────────────
-  document.addEventListener('click', function (evt) {
+  function onVitalExpandClick(evt) {
     var btn = evt.target.closest('[data-vital-expand]');
     if (!btn) return;
     var metric = btn.getAttribute('data-vital-expand');
@@ -2922,7 +2935,15 @@ _sobsInitRegexFilter({
       });
       bsCollapse.show();
     }
-  });
+  }
+  // `document` is never swapped away by htmx — tie teardown to expandedEl (which is) so this
+  // handler (and its closure over this render's expandedPanel/currentMetric) doesn't accumulate
+  // one more permanent copy on every boosted visit to /rum.
+  if (window.SOBS && window.SOBS.autoCleanupListener) {
+    window.SOBS.autoCleanupListener(expandedEl, document, 'click', onVitalExpandClick);
+  } else {
+    document.addEventListener('click', onVitalExpandClick);
+  }
 
   // Sync aria-expanded with Bootstrap collapse state
   expandedPanel.addEventListener('shown.bs.collapse', function () {
@@ -2937,9 +2958,14 @@ _sobsInitRegexFilter({
     currentMetric = null;
   });
 
-  window.addEventListener('resize', function () {
+  function onExpandedChartResize() {
     if (expandedChart) expandedChart.resize();
-  });
+  }
+  if (window.SOBS && window.SOBS.autoCleanupListener) {
+    window.SOBS.autoCleanupListener(expandedEl, window, 'resize', onExpandedChartResize);
+  } else {
+    window.addEventListener('resize', onExpandedChartResize);
+  }
 
   // Re-render expanded chart when TZ changes.
   if (window.sobsRumTz) {

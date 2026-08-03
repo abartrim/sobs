@@ -16,15 +16,36 @@ import { test, expect, Page, Locator } from '@playwright/test';
 // own dashboard sidesteps that entirely and is arguably the more robust test design anyway.
 test.describe.configure({ mode: 'serial' });
 
+// Playwright's serial-mode retry re-runs the WHOLE group from the start on any failure, not just
+// the failed test — createDashboard() would then run again for a test that already ran, creating
+// a second dashboard with the same name. Track every dashboard this file creates and delete it
+// via a direct API call after each test (regardless of pass/fail) so a retry always starts from a
+// clean slate instead of leaving a stale, same-named dashboard for the next attempt to collide
+// with (the "confirm" test's own delete is harmless to repeat here — a second delete of an
+// already-deleted dashboard just fails silently, per the .catch below).
+const createdDashboardIds: string[] = [];
+
+test.afterEach(async ({ request }) => {
+  while (createdDashboardIds.length) {
+    const id = createdDashboardIds.pop();
+    await request.post(`/dashboards/${id}/delete`).catch(() => {});
+  }
+});
+
 async function createDashboard(page: Page, name: string): Promise<Locator> {
   await page.goto('/dashboards');
   await page.locator('[data-bs-target="#newDashboardModal"]').first().click();
   await page.locator('#newDashboardModal input[name="name"]').fill(name);
   await page.locator('#newDashboardModal button[type="submit"]').click();
   await page.waitForURL(/\/dashboards\/[0-9a-f-]+$/);
+  const idMatch = page.url().match(/\/dashboards\/([0-9a-f-]+)$/);
+  if (idMatch) createdDashboardIds.push(idMatch[1]);
 
   await page.goto('/dashboards');
-  const card = page.locator('.card', { hasText: name });
+  // .first(): defensive even with the cleanup above — if a same-named dashboard from an earlier,
+  // uncleaned run still exists, this test's assertions only care that ITS OWN dashboard (or any
+  // matching one) is visible, not which of several identically-named matches Playwright picks.
+  const card = page.locator('.card', { hasText: name }).first();
   await expect(card).toBeVisible();
   return card;
 }

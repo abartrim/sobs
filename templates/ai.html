@@ -1034,7 +1034,19 @@ var AI_PAGE_TO_TS = {{ to_ts | tojson }};
 var AI_CONVERSATION_URL = {{ url_for('get_ai_conversation') | tojson }};
 var AI_SPAN_ATTRIBUTES_URL = {{ url_for('get_ai_span_attributes') | tojson }};
 
-document.addEventListener('show.bs.collapse', function(ev) {
+// `document` is never swapped away by htmx — anchor cleanup for these page-wide listeners to
+// #mainContent, which is, so they don't accumulate one more permanent copy on every boosted
+// revisit to /ai.
+var aiMainContentEl = document.getElementById('mainContent');
+function aiAutoCleanupListener(target, eventName, handler) {
+  if (window.SOBS && window.SOBS.autoCleanupListener && aiMainContentEl) {
+    window.SOBS.autoCleanupListener(aiMainContentEl, target, eventName, handler);
+  } else {
+    target.addEventListener(eventName, handler);
+  }
+}
+
+function onAiShowConvCollapse(ev) {
   var target = ev.target;
   var lazy = target.querySelector('.ai-conv-lazy:not([data-conv-loaded])');
   if (!lazy) return;
@@ -1062,9 +1074,10 @@ document.addEventListener('show.bs.collapse', function(ev) {
       lazy.removeAttribute('data-conv-loaded');
       lazy.innerHTML = '<p class="text-danger small my-2">Failed to load conversation. <a href="#" onclick="this.closest(\'.ai-conv-lazy\').removeAttribute(\'data-conv-loaded\'); this.closest(\'.accordion-collapse\').dispatchEvent(new Event(\'show.bs.collapse\', { bubbles: true })); return false;">Retry</a></p>';
     });
-});
+}
+aiAutoCleanupListener(document, 'show.bs.collapse', onAiShowConvCollapse);
 
-document.addEventListener('shown.bs.tab', function(ev) {
+function onAiShownTab(ev) {
   var target = ev.target;
   if (!target) {
     return;
@@ -1077,7 +1090,8 @@ document.addEventListener('shown.bs.tab', function(ev) {
   if (pane) {
     ensureAiMetricsCosts(pane);
   }
-});
+}
+aiAutoCleanupListener(document, 'shown.bs.tab', onAiShownTab);
 
 /* ===== Compute total estimated cost for summary card ===== */
 (function() {
@@ -1377,7 +1391,7 @@ function jumpToRelatedTelemetry(groupId, turnId) {
   }, 1800);
 }
 
-document.addEventListener('click', function(evt) {
+aiAutoCleanupListener(document, 'click', function(evt) {
   var link = evt.target.closest('[data-ai-related-group][data-ai-related-turn-id]');
   if (!link) return;
   evt.preventDefault();
@@ -1755,11 +1769,18 @@ document.addEventListener('click', function(evt) {
     }
   });
 
-  document.addEventListener("click", (e) => {
+  // `document` is never swapped away by htmx — anchor cleanup to `input` (which is) so this
+  // outside-click handler doesn't accumulate one more permanent copy on every boosted visit.
+  var onSqlFilterOutsideClick = (e) => {
     if (!input.contains(e.target) && !dropdown.contains(e.target)) {
       closeDropdown();
     }
-  });
+  };
+  if (window.SOBS && window.SOBS.autoCleanupListener) {
+    window.SOBS.autoCleanupListener(input, document, 'click', onSqlFilterOutsideClick);
+  } else {
+    document.addEventListener('click', onSqlFilterOutsideClick);
+  }
 
   // Pre-populate statusState for pre-filled sql (shown on first focus, not on load).
   if (input.value.trim()) {

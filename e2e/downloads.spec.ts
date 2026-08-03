@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-// htmx's boost automatically skips links with a `download` attribute, but links that
-// trigger a download purely via a `Content-Disposition: attachment` response header (no
-// `download` attribute) need explicit hx-boost="false" — otherwise htmx would XHR-fetch the
-// response and try to swap the file bytes into #mainContent as if it were a page. This
-// checks the export link actually triggers a browser download, not a DOM swap.
+// htmx boost does NOT skip links with a `download` attribute (checked: static/htmx.min.js
+// has no special-casing for it) — every export/download link needs explicit hx-boost="false",
+// or htmx will XHR-fetch the response and try to swap the file bytes into #mainContent as if
+// it were a page. This checks the export link actually triggers a browser download, not a swap.
 
 test('the reports export link triggers a real download, not a page swap', async ({ page }) => {
   await page.goto('/reports');

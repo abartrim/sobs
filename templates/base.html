@@ -711,6 +711,21 @@
   </style>
   {% block styles %}{% endblock %}
 </head>
+<!-- Every same-origin <a href> and <form> under this <body> is boosted by default. A form or
+     link MUST set hx-boost="false" if it falls into any of these categories — each existing
+     opt-out below exists for one of these reasons, not a one-off judgment call:
+       1. Its POST handler can respond with anything other than a redirect to a full page
+          containing id="mainContent" on EVERY path, including validation failures (the default
+          flashRedirect-on-every-branch pattern is boost-safe; a handler that instead renders/
+          errors directly with a non-2xx status or a JSON/partial body is not — the
+          htmx:beforeSwap fallback below will silently discard that response's content).
+       2. It triggers a file download via a `Content-Disposition: attachment` response header
+          (a `download` attribute alone is NOT sufficient — htmx does not special-case it).
+       3. It has its own JS 'submit'/'click' handler that expects to fully own the request
+          (client-side validation, a custom fetch() call, a confirm flow other than the shared
+          data-confirm-message one below) rather than letting htmx issue the request.
+     There is no automated check for this yet — when adding a new form/link, check it against
+     this list by hand. -->
 <body hx-boost="true" hx-target="#mainContent" hx-select="#mainContent" hx-swap="outerHTML" hx-indicator="#sbBoostBar">
 <!-- Vendor libs load here, before the page content/scripts blocks below, so that a page's own
      bottom-of-page script can rely on bootstrap/htmx/etc. being available synchronously — same
@@ -766,6 +781,17 @@
       }
     });
   });
+
+  // autoCleanupListener(el, target, eventName, handler): the recurring shape of onElementCleanup
+  // usage for a page-level listener bound to `window` or `document` (resize, scroll, click,
+  // beforeunload, ...) — those targets are never swapped away by htmx, so the listener has to be
+  // removed explicitly via onElementCleanup(el, ...) rather than relying on the DOM discarding it.
+  window.SOBS.autoCleanupListener = function (el, target, eventName, handler) {
+    target.addEventListener(eventName, handler);
+    window.SOBS.onElementCleanup(el, function () {
+      target.removeEventListener(eventName, handler);
+    });
+  };
 
   // Also defined this early: errors.html/traces.html call this synchronously at the top
   // level of their own bottom-of-page scripts (to wire up their Saved Reports dropdown),
@@ -1155,7 +1181,13 @@
       } catch (_err) {
         return;
       }
-      link.classList.toggle('active', linkPath === path);
+      // Prefix match (not exact), mirroring the server-side `request.endpoint in (...)` groups
+      // this replaces (e.g. Dashboards/Metrics/Settings stay active on their sub-pages) — every
+      // grouped endpoint's path is the nav link's own path or that path plus a `/`-separated
+      // suffix, so this generalizes those groups instead of hardcoding each one. `/` itself is
+      // special-cased since every path is "prefixed" by it.
+      var isActive = linkPath === '/' ? path === '/' : (path === linkPath || path.indexOf(linkPath + '/') === 0);
+      link.classList.toggle('active', isActive);
     });
   }
   document.body.addEventListener('htmx:afterSettle', syncActiveNavLinks);
@@ -1475,6 +1507,12 @@
       form.dataset.confirming = '0';
       return;
     }
+    // A rapid double-click/double-submit fires this listener twice before the first dialog is
+    // even shown — without this guard, the second call would queue a second confirm request for
+    // the exact same form, which would then pop back up (asking to confirm an action that may
+    // already be in flight or done) right after the first is dismissed.
+    if (form.dataset.sobsConfirmPending === '1') return;
+    form.dataset.sobsConfirmPending = '1';
     event.preventDefault();
     var submitter = event.submitter;
     showConfirm({
@@ -1483,6 +1521,7 @@
       okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
       okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
     }).then(function (confirmed) {
+      delete form.dataset.sobsConfirmPending;
       if (!confirmed) {
         return;
       }
@@ -1514,12 +1553,19 @@
     var form = event.target && event.target.closest && event.target.closest('form[data-confirm-message]');
     if (!form || !isHtmxBoosted(form)) return;
     event.preventDefault();
+    // Same double-click guard as the plain-submit listener above: without it, two htmx:confirm
+    // events fired in quick succession for the same form (e.g. a rapid double-click before the
+    // first modal appears) would queue a second confirm request that pops back up right after
+    // the first is resolved, re-prompting for a row that may already be gone.
+    if (form.dataset.sobsConfirmPending === '1') return;
+    form.dataset.sobsConfirmPending = '1';
     showConfirm({
       title: form.getAttribute('data-confirm-title') || 'Confirm Action',
       message: form.getAttribute('data-confirm-message'),
       okLabel: form.getAttribute('data-confirm-ok-label') || 'Confirm',
       okClass: form.getAttribute('data-confirm-ok-class') || 'btn-danger'
     }).then(function (confirmed) {
+      delete form.dataset.sobsConfirmPending;
       if (confirmed) {
         event.detail.issueRequest(true);
       }

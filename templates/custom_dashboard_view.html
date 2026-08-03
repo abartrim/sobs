@@ -180,10 +180,16 @@
                   title="Clone chart">
             <i class="bi bi-files"></i>
           </button>
+          <!-- hx-boost="false": the vendored htmx build has no special-casing for the `download`
+               attribute (it does not exempt this link from boost), so without this it would get
+               XHR-fetched and swap-checked like a page nav before falling back to a real
+               navigation — a redundant extra fetch on every export, same as the other
+               Content-Disposition-triggered export links elsewhere in the app. -->
           <a class="btn btn-sm btn-outline-secondary py-0 px-1"
              href="{{ url_for('export_chart', dashboard_id=dashboard.id, chart_id=chart.id) }}"
              title="Export chart as JSON template"
-             download>
+             download
+             hx-boost="false">
             <i class="bi bi-download"></i>
           </a>
               <form method="post"
@@ -715,15 +721,32 @@
     var hintEl = document.getElementById('chart-hint-' + chartCfg.id);
     var sourceBtn = document.getElementById('chart-source-btn-' + chartCfg.id);
     if (!el) return;
+
+    // refreshAllCharts() re-renders this same `el` on every auto-refresh tick (as often as every
+    // 10s). Tear down the PREVIOUS render's chart instance and resize listener immediately,
+    // rather than letting them accumulate — each ec.init()/addEventListener() below used to run
+    // again on top of the last tick's, piling up one more permanent resize listener (and cleanup
+    // registry entry) per tick for as long as the dashboard tab stayed open.
+    if (el.__sobsChartTeardown) {
+      el.__sobsChartTeardown();
+      el.__sobsChartTeardown = null;
+    }
+
     var ec = echarts.init(el, (window.SOBS && SOBS.echartsTheme) ? SOBS.echartsTheme() : null);
     var onChartResize = null;
-    // refreshAllCharts() already disposes+recreates ec within one visit; this additionally tears
-    // down the window resize listener when the page itself is navigated away from via htmx boost
-    // (window never gets swapped, so an unremoved listener would otherwise pile up forever).
-    window.SOBS.onElementCleanup(el, function () {
+    el.__sobsChartTeardown = function () {
       if (onChartResize) window.removeEventListener('resize', onChartResize);
       ec.dispose();
-    });
+    };
+    // Registered once per element (not once per render) — reads el.__sobsChartTeardown live at
+    // cleanup time, so it always tears down whichever render is current when the page is finally
+    // navigated away from via htmx boost.
+    if (!el.__sobsChartCleanupRegistered) {
+      el.__sobsChartCleanupRegistered = true;
+      window.SOBS.onElementCleanup(el, function () {
+        if (el.__sobsChartTeardown) el.__sobsChartTeardown();
+      });
+    }
     ec.showLoading({ text: 'Loading…', color: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-primary') : '#0d6efd', textColor: (window.SOBS && SOBS.cssVar) ? SOBS.cssVar('--bs-secondary-color') : '#adb5bd', maskColor: 'rgba(128,128,128,0.2)' });
 
     // Use ChartSpec render endpoint as the single chart model.
@@ -882,13 +905,8 @@
   }
 
   function refreshAllCharts() {
-    CHART_DATA.forEach(function (cfg) {
-      var el = document.getElementById('chart-' + cfg.id);
-      if (el) {
-        var existing = echarts.getInstanceByDom(el);
-        if (existing) existing.dispose();
-      }
-    });
+    // renderChart() itself now tears down each element's previous chart/listener before
+    // re-rendering (see el.__sobsChartTeardown above), so no separate dispose pass is needed here.
     CHART_DATA.forEach(renderChart);
   }
 
