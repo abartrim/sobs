@@ -5,7 +5,9 @@
 # save (a few-second Go compile — the dev-loop replacement for Quart's reloader). Not a production
 # artifact (use Dockerfile.go for that).
 
-FROM golang:1.23-bookworm
+# GO_VERSION/CHDB_VERSION: see versions.env (repo root) — checked by scripts/check_version_pins.py.
+ARG GO_VERSION=1.23.4
+FROM golang:${GO_VERSION}-bookworm
 ARG TARGETARCH
 
 # air live-reload tool (pinned).
@@ -17,7 +19,8 @@ WORKDIR /src/go
 COPY go/go.mod go/go.sum ./
 RUN go mod download
 
-# Pinned chdb-core v26.5.0 native lib (arch-matched), same as the prod image.
+# Pinned chdb-core native lib (arch-matched), same as the prod image.
+ARG CHDB_VERSION=v26.5.0
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) asset=linux-x86_64-libchdb.tar.gz ;; \
@@ -25,7 +28,7 @@ RUN set -eux; \
       *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/libchdb.tar.gz \
-      "https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/${asset}"; \
+      "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/${asset}"; \
     mkdir -p /opt/libchdb; tar -xzf /tmp/libchdb.tar.gz -C /opt/libchdb; test -f /opt/libchdb/libchdb.so
 
 ENV CHDB_LIB_PATH=/opt/libchdb/libchdb.so \

@@ -21,9 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- layer: Go toolchain (arch-matched like Dockerfile.go's TARGETARCH; busts only on GO_VERSION) ---
-# GO_VERSION is hand-duplicated from Dockerfile.ci's own ARG of the same name — bumping the Go
-# toolchain means updating both files (Dockerfile.go pins via its `golang:1.23-bookworm` base
-# image tag instead, so check that one too). No shared source of truth exists yet.
+# GO_VERSION/CHDB_VERSION: see versions.env (repo root) — checked by scripts/check_version_pins.py.
 ARG TARGETARCH
 ARG GO_VERSION=1.23.4
 ARG GOPROXY=https://proxy.golang.org,direct
@@ -42,9 +40,6 @@ ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH \
     GOCACHE=/root/.cache/go-build
 
 # --- layer: pinned libchdb (matches go/CHDB_PIN.md; arch-matched; busts only on CHDB_VERSION) ---
-# CHDB_VERSION is hand-duplicated from Dockerfile.ci's and Dockerfile.go's own ARGs of the same
-# name (all three ultimately should match go/CHDB_PIN.md) — this exact pin has drifted out of
-# sync across copies before; bumping it here means bumping it in those files too.
 ARG CHDB_VERSION=v26.5.0
 RUN case "${TARGETARCH}" in \
       amd64) chdb_asset=linux-x86_64-libchdb.tar.gz ;; \

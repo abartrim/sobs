@@ -1,5 +1,12 @@
 # chdb / chdb-core / chdb-go version pin
 
+> The live CHDB_VERSION pin used by every build (CI and local) is `versions.env` at the
+> repo root — `scripts/check_version_pins.py` fails CI if any Dockerfile drifts from it.
+> The `v26.5.0` you'll see below is that same current value; the "Record the exact pins
+> here once verified" block further down is a dated, frozen record of the one-time
+> Python↔Go compatibility gate, not something this doc re-derives automatically — bump
+> `versions.env` first on a version change, then update this file's own copy by hand.
+
 **The single most important version decision in this migration.** The Go process must
 read and write the *same* on-disk `data/sobs.chdb` that Python `chdb 4.1.9` created. The
 underlying ClickHouse storage format must be compatible across both engines, so both
@@ -57,10 +64,12 @@ For parity/dev we keep the pinned `libchdb.so` under `.libchdb/` (gitignored, 32
 and export `CHDB_LIB_PATH=$REPO/.libchdb/libchdb.so`. For the Docker image, COPY the
 pinned `libchdb.so` into the image and set `CHDB_LIB_PATH` (Phase 5).
 
-Download the pinned lib:
+Download the pinned lib (sourcing the version from `versions.env` so this can't drift;
+works from anywhere inside the repo):
 ```
+CHDB_VERSION=$(grep '^CHDB_VERSION=' "$(git rev-parse --show-toplevel)/versions.env" | cut -d= -f2)
 curl -sL -o libchdb.tar.gz \
-  https://github.com/chdb-io/chdb-core/releases/download/v26.5.0/macos-arm64-libchdb.tar.gz
+  "https://github.com/chdb-io/chdb-core/releases/download/${CHDB_VERSION}/macos-arm64-libchdb.tar.gz"
 # (linux-x86_64-libchdb.tar.gz / linux-aarch64-libchdb.tar.gz for the deploy targets)
 tar -xzf libchdb.tar.gz   # -> libchdb.so, chdb.h, chdb.hpp
 ```
