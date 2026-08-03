@@ -304,7 +304,8 @@
   {% endif %}
 
   {% set mc = trace_detail.metrics_context or {} %}
-  {% set ts_data = mc.timeseries or {'ticks_ms': [], 'by_metric': {}} %}
+  {# djlint:off — T039 false-positives on a nested empty-dict literal ({'k': {}}) inside a set
+     tag below (its brace scanner miscounts nesting); the tag is valid and closes normally. #}{% set ts_data = mc.timeseries or {'ticks_ms': [], 'by_metric': {}} %}{# djlint:on #}
   <div class="card mb-3">
     <div class="card-header py-2" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#trace-metrics-panel">
       <div class="d-flex justify-content-between align-items-center">

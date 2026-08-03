@@ -217,7 +217,12 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install linting dependencies
-        run: pip install black isort flake8 djlint
+        # Pinned: an unpinned `djlint` picked up a new release mid-migration whose H042/T039
+        # checks false-positive on <label for> paired with a <textarea id> and on a nested
+        # empty-dict literal inside a {% set %} tag (see the djlint:off blocks in templates/),
+        # failing CI on PRs that never touched those templates. Pin all four so a future
+        # release can't silently break unrelated PRs again; bump deliberately instead.
+        run: pip install black==26.5.1 isort==8.0.1 flake8==7.3.0 djlint==1.43.2
 
       - name: Run black
         run: black --check scripts/ examples/

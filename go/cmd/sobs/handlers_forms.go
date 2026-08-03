@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"html"
@@ -92,10 +94,53 @@ func sessionCookieAttrs() string {
 	return a
 }
 
-// flashSessionCookie builds the sobs_session cookie carrying a single flash message. The
-// parity normalizer keeps only the unsigned base64 payload segment (dropping the HMAC
-// timestamp+signature), so a placeholder ".0.0" suffix is sufficient and the payload — the
-// only compared part — is byte-identical to Quart's.
+// sessionSecretKey signs/verifies the sobs_session cookie payload (mirrors Quart's SECRET_KEY-
+// backed itsdangerous session signing), so a client can't forge or tamper with a flash message or
+// the one-time CI-push key. Read once at startup from the same SOBS_SECRET_KEY env var (and the
+// same "sobs-dev-secret-key" default) as cfg.SecretKey in main.go's loadConfig — kept as a
+// package-level var, matching sessionCookieName/sessionCookieSameSite above, because the ~100
+// flashRedirect call sites across the codebase are free functions, not *server methods, so
+// *server.cfg isn't reachable from them without threading it through every one.
+var sessionSecretKey = []byte(envOr("SOBS_SECRET_KEY", "sobs-dev-secret-key"))
+
+// signSessionPayload appends an HMAC-SHA256 signature (keyed by sessionSecretKey) to a session
+// payload, producing the cookie value "payload.signature" — both halves are base64.RawURLEncoding,
+// whose alphabet has no '.', so the two segments split unambiguously. This is a plain signer (no
+// itsdangerous timestamp/max_age check), so verifySessionCookiePayload only rejects a tampered or
+// unsigned payload, not an old-but-genuine one; that's sufficient here since a stolen flash cookie
+// is only ever useful for the single page view it was meant for anyway.
+func signSessionPayload(payload string) string {
+	mac := hmac.New(sha256.New, sessionSecretKey)
+	mac.Write([]byte(payload))
+	return payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// verifySessionCookiePayload splits a sobs_session cookie's value into its payload and signature
+// (see signSessionPayload) and returns the payload only if the signature verifies — without the
+// server's secret key, a forged or edited payload cannot produce a signature this accepts.
+func verifySessionCookiePayload(cookieVal string) (string, bool) {
+	i := strings.LastIndexByte(cookieVal, '.')
+	if i < 0 {
+		return "", false
+	}
+	payload, sigB64 := cookieVal[:i], cookieVal[i+1:]
+	gotSig, err := base64.RawURLEncoding.DecodeString(sigB64)
+	if err != nil {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, sessionSecretKey)
+	mac.Write([]byte(payload))
+	if !hmac.Equal(gotSig, mac.Sum(nil)) {
+		return "", false
+	}
+	return payload, true
+}
+
+// flashSessionCookie builds the sobs_session cookie carrying a single flash message, signed via
+// signSessionPayload so it can't be forged without sessionSecretKey. goldenreplay/normalize.go's
+// session-cookie normalizer splits the value on "." and, for fewer than 3 segments, canonicalizes
+// just segments[0] — i.e. our payload — before comparison, so the payload stays the byte-identical
+// part parity compares regardless of what the trailing signature bytes are.
 func flashSessionCookie(category, message string) string {
 	sess := jsonenc.NewObject().Set("_flashes", []any{
 		jsonenc.NewObject().Set(" t", []any{category, message}),
@@ -106,7 +151,7 @@ func flashSessionCookie(category, message string) string {
 	// session dict, so the compress/no-compress decision is irrelevant — and CPython's zlib is
 	// a few bytes smaller than Go's at the threshold, so replicating its decision is unreliable.
 	payload := base64.RawURLEncoding.EncodeToString(js)
-	return sessionCookieName + "=" + payload + ".0.0" + sessionCookieAttrs()
+	return sessionCookieName + "=" + signSessionPayload(payload) + sessionCookieAttrs()
 }
 
 // plainRedirect reproduces a bare `return redirect(location)` (no flash): a 302 with
@@ -156,7 +201,7 @@ func flashRedirectWithCiKey(w http.ResponseWriter, category, message, location, 
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Location", location)
-	h.Set("Set-Cookie", sessionCookieName+"="+payload+".0.0"+sessionCookieAttrs())
+	h.Set("Set-Cookie", sessionCookieName+"="+signSessionPayload(payload)+sessionCookieAttrs())
 	h.Set("Vary", "Cookie")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusFound)

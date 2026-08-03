@@ -75,12 +75,13 @@
           <div class="form-text">Copilot will be formally assigned to suggest a fix if no active work already exists.</div>
         </div>
         <div class="mb-3 mt-3">
-          <label for="raiseIssueAdditionalContext" class="form-label small text-secondary mb-1">
+          {# djlint:off — H042 false-positives on <label for> paired with a <textarea id> (it
+             only recognizes <input>/<select>); the for/id pair below is correct. #}<label for="raiseIssueAdditionalContext" class="form-label small text-secondary mb-1">
             Additional context <span class="text-muted">(optional)</span>
           </label>
           <textarea class="form-control form-control-sm" id="raiseIssueAdditionalContext" rows="3"
                     placeholder="Describe what you were doing, any recent changes, or other context that may help analyze this issue…"
-                    maxlength="2000"></textarea>
+                    maxlength="2000"></textarea>{# djlint:on #}
           <div class="form-text">This context is included in the LLM prompt and the generated GitHub issue.</div>
         </div>
         <div class="form-check mt-2">

@@ -547,35 +547,46 @@ func (s *server) mcpSafeKeys() []any {
 }
 
 // ---------------------------------------------------------------------------
-// Repositories page: one-time CI-push key surfaced from the session cookie
-// (app.py session.pop("ci_push_api_key_plain_by_app")).
+// Session-cookie decoding shared by the CI-push one-time key (repositories page)
+// and the flashRedirect() flash-message round trip (render.go / handlers_pages.go).
 // ---------------------------------------------------------------------------
 
-// sessionCiPushPlainByApp reads the per-app one-time CI-push plaintext keys stashed in the
-// sobs_session cookie by flashRedirectWithCiKey (mirrors session.pop(...)). The cookie is the
-// unsigned base64 payload + ".0.0" tail this port emits; we decode the first segment, JSON-parse
-// it, and return the ci_push_api_key_plain_by_app map. Any parse failure (incl. the empty-corpus
-// no-cookie case) yields an empty map, so this only surfaces a key right after a rotation POST.
-func sessionCiPushPlainByApp(r *http.Request) map[string]string {
-	out := map[string]string{}
+// decodeSessionCookie reads, signature-verifies (verifySessionCookiePayload, handlers_forms.go),
+// and JSON-decodes the sobs_session cookie this port emits (see flashSessionCookie/
+// flashRedirectWithCiKey/sessionCookieHeaderFor). A missing cookie, a bad/missing signature (e.g.
+// a forged or hand-edited cookie value — without sessionSecretKey it cannot be reproduced), or a
+// parse failure all yield (nil, false).
+func decodeSessionCookie(r *http.Request) (*jsonenc.Object, bool) {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil || c == nil || c.Value == "" {
-		return out
+		return nil, false
 	}
-	payload := c.Value
-	if i := strings.IndexByte(payload, '.'); i >= 0 {
-		payload = payload[:i]
+	payload, ok := verifySessionCookiePayload(c.Value)
+	if !ok {
+		return nil, false
 	}
 	js, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
-		return out
+		return nil, false
 	}
 	v, err := parseJSONValue(js)
 	if err != nil {
-		return out
+		return nil, false
 	}
 	o, ok := v.(*jsonenc.Object)
 	if !ok {
+		return nil, false
+	}
+	return o, true
+}
+
+// ciPushPlainByAppFromSession extracts the per-app one-time CI-push plaintext keys (mirrors
+// session.pop("ci_push_api_key_plain_by_app")) from an already-decoded session object, so a
+// caller that also needs sessionFlashedMessages/flashesFromSession from the same cookie (e.g.
+// handleViewSettingsRepositories) can decode the cookie once and derive both from it.
+func ciPushPlainByAppFromSession(o *jsonenc.Object) map[string]string {
+	out := map[string]string{}
+	if o == nil {
 		return out
 	}
 	mv, has := o.Get("ci_push_api_key_plain_by_app")
@@ -593,4 +604,101 @@ func sessionCiPushPlainByApp(r *http.Request) map[string]string {
 		}
 	}
 	return out
+}
+
+// sessionCiPushPlainByApp reads the per-app one-time CI-push plaintext keys stashed in the
+// sobs_session cookie by flashRedirectWithCiKey (mirrors session.pop(...)). Any parse failure
+// (incl. the empty-corpus no-cookie case) yields an empty map, so this only surfaces a key right
+// after a rotation POST.
+func sessionCiPushPlainByApp(r *http.Request) map[string]string {
+	o, ok := decodeSessionCookie(r)
+	if !ok {
+		return map[string]string{}
+	}
+	return ciPushPlainByAppFromSession(o)
+}
+
+// flashesFromSession extracts any pending flash messages (app.py's session["_flashes"], set by
+// flashRedirect/flashRedirectWithCiKey) from an already-decoded session object. Each entry is
+// decoded from Flask/Quart's TaggedJSONSerializer tuple tag ({" t": [category, message]}) into the
+// []any{category, message} pair get_flashed_messages (render.go's newEngineFlash) expects.
+//
+// The returned hadFlashes bool reports whether the object carried a "_flashes" key at all — Quart's
+// get_flashed_messages() pops that key unconditionally (session.pop), which is what marks the
+// session modified and makes Quart re-send an updated Set-Cookie in the response, even if every
+// entry in the list failed to decode. Callers should only touch the response cookie when this is
+// true, so requests with no session cookie — the common case — pass through untouched.
+func flashesFromSession(o *jsonenc.Object) (flashes []any, hadFlashes bool) {
+	if o == nil {
+		return nil, false
+	}
+	fv, has := o.Get("_flashes")
+	if !has {
+		return nil, false
+	}
+	arr, ok := fv.([]any)
+	if !ok {
+		return nil, true
+	}
+	out := make([]any, 0, len(arr))
+	for _, item := range arr {
+		tagged, ok := item.(*jsonenc.Object)
+		if !ok {
+			continue
+		}
+		pair, has := tagged.Get(" t")
+		if !has {
+			continue
+		}
+		pairArr, ok := pair.([]any)
+		if !ok || len(pairArr) != 2 {
+			continue
+		}
+		out = append(out, pairArr)
+	}
+	return out, true
+}
+
+// sessionFlashedMessages reads any pending flash messages out of the incoming sobs_session cookie
+// (see flashesFromSession for the decode).
+func sessionFlashedMessages(r *http.Request) (flashes []any, hadFlashes bool) {
+	o, ok := decodeSessionCookie(r)
+	if !ok {
+		return nil, false
+	}
+	return flashesFromSession(o)
+}
+
+// sessionObjectWithoutKey returns a copy of o with the given key removed (insertion order of the
+// remaining keys preserved), for re-serializing a session after popping one entry — mirrors
+// Quart/Flask's session.pop(key), which only drops that key and leaves the rest of the session
+// dict (and so the re-sent cookie) intact.
+func sessionObjectWithoutKey(o *jsonenc.Object, key string) *jsonenc.Object {
+	out := jsonenc.NewObject()
+	if o == nil {
+		return out
+	}
+	for _, k := range o.Keys() {
+		if k == key {
+			continue
+		}
+		if v, has := o.Get(k); has {
+			out.Set(k, v)
+		}
+	}
+	return out
+}
+
+// sessionCookieHeaderFor builds the Set-Cookie header value for the session that remains after
+// popping a key: an empty (or nil) remainder clears the cookie entirely — mirroring Quart, which
+// deletes the cookie once the session dict becomes empty — otherwise it re-encodes the remaining
+// session data the same way flashSessionCookie does (handlers_forms.go), so any other session
+// entry (e.g. flashRedirectWithCiKey's one-time ci_push_api_key_plain_by_app) survives until it is
+// independently popped by its own reader.
+func sessionCookieHeaderFor(remaining *jsonenc.Object) string {
+	if remaining == nil || remaining.Len() == 0 {
+		return sessionCookieName + "=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0" + sessionCookieAttrs()
+	}
+	payload := base64.RawURLEncoding.EncodeToString(jsonenc.Encode(remaining, flaskSessionOpts))
+	return sessionCookieName + "=" + signSessionPayload(payload) + sessionCookieAttrs()
 }
