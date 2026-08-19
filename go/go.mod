@@ -15,9 +15,9 @@ go 1.23
 // README) so the only new module dependency is the runtime itself — no grpc, no otlp module.
 
 require (
-	github.com/chdb-io/chdb-go v1.11.0
+	github.com/chdb-io/chdb-go v1.12.0
 	github.com/dlclark/regexp2 v1.12.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
