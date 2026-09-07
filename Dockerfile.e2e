@@ -12,7 +12,7 @@
 # to in package-lock.json (currently 1.62.1) — Playwright enforces that the test runner and the
 # browser build it drives are the same version. Bumping @playwright/test needs a matching bump
 # of the tag below.
-FROM mcr.microsoft.com/playwright:v1.62.1-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 ENV DEBIAN_FRONTEND=noninteractive
 
 # --- layer: OS packages (python3 for scripts/e2e_server.py; curl to fetch Go + libchdb below) ---
