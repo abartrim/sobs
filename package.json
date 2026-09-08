@@ -15,9 +15,9 @@
     "htmx.org": "^2.0.10"
   },
   "devDependencies": {
-    "@playwright/test": "^1.56.1",
-    "eslint": "^10.6.0",
-    "terser": "^5.48.0",
-    "typescript": "^6.0.3"
+    "@playwright/test": "^1.63.0",
+    "eslint": "^10.10.0",
+    "terser": "^5.51.2",
+    "typescript": "^7.0.2"
   }
 }
